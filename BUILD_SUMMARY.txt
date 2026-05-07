@@ -1,0 +1,115 @@
+================================================================
+AI CHAT MONITOR — BUILD SUMMARY
+Project: Local AI Context Agent (Phase 1)
+Date: 2026-04-26
+================================================================
+
+WHAT THIS IS
+------------
+A Chrome/Edge browser extension that monitors your AI chats
+on Claude, ChatGPT, and Gemini. It automatically clips,
+summarizes, and saves every session to your local machine.
+No APIs. No subscriptions. Fully offline after install.
+
+OUTPUT FILES (saved to Documents\AI_Monitor\)
+---------------------------------------------
+context.txt  — Last 5 sessions compressed. Paste into any
+               new AI chat to instantly restore your context.
+summary.txt  — Full running log of every session ever.
+history\     — Individual session files by date and platform.
+
+================================================================
+FILE STRUCTURE
+================================================================
+
+ai-monitor/
+├── manifest.json        Chrome extension config
+├── content.js           Reads chat DOM on AI platforms
+├── background.js        Routes data to Python host
+├── popup.html           Extension button UI
+├── popup.js             Popup logic
+└── native/
+    ├── host.py          Python script — writes files to disk
+    ├── host.json        Tells Chrome where host.py lives
+    └── install.bat      Run once to set everything up
+
+================================================================
+INSTALL STEPS (do in order)
+================================================================
+
+STEP 1 — PREP
+  - Make sure Python is installed
+    Test: open CMD, type: python --version
+    If nothing: download from python.org
+
+STEP 2 — LOAD THE EXTENSION
+  - Open Chrome
+  - Go to: chrome://extensions
+  - Top right: turn on Developer Mode
+  - Click "Load unpacked"
+  - Select the ai-monitor folder
+  - Copy the Extension ID (long string of letters shown on card)
+
+STEP 3 — RUN THE INSTALLER
+  - Open the ai-monitor folder
+  - Right-click install.bat > Run as Administrator
+  - Follow the on-screen prompts
+
+STEP 4 — LINK EXTENSION TO HOST
+  - Open: Documents\AI_Monitor\native\host.json
+  - Find: YOUR_EXTENSION_ID_HERE
+  - Replace with the Extension ID you copied in Step 2
+  - Save the file
+
+STEP 5 — RESTART CHROME
+  - Close Chrome completely
+  - Reopen it
+  - Go to claude.ai or chatgpt.com
+  - Click the extension icon in toolbar
+  - Click "Clip This Chat Now" to test
+
+STEP 6 — VERIFY
+  - Open: Documents\AI_Monitor\
+  - You should see context.txt and summary.txt created
+  - Open context.txt — that is your portable memory file
+
+================================================================
+HOW TO USE IT
+================================================================
+
+DAILY USE:
+  1. Browse AI sites normally — extension clips automatically
+  2. Every 2 minutes it saves in the background
+  3. At end of session: click extension > Clip This Chat Now
+
+STARTING A NEW AI CHAT:
+  1. Open Documents\AI_Monitor\context.txt
+  2. Copy the contents
+  3. Paste as your FIRST message in the new chat
+  4. The AI now has full context of where you left off
+
+================================================================
+PHASE ROADMAP (what comes after this)
+================================================================
+
+PHASE 1 (THIS BUILD) — Browser extension clips + saves chats
+PHASE 2 — Python core reads saves, builds smart context file
+PHASE 3 — Context file feeds into your AI architecture app
+PHASE 4 — Full agent system with memory and recall
+
+================================================================
+KNOWN LIMITATIONS
+================================================================
+- DOM selectors may need updating if AI platforms redesign
+- Native host requires Python installed on Windows
+- Extension ID changes if you reinstall — update host.json
+
+================================================================
+NEXT SESSION STARTING POINT
+================================================================
+Tell the AI: "We are building an AI chat monitor agent.
+Phase 1 is complete. The browser extension is installed.
+Now we build Phase 2: the Python core that reads the saved
+files and builds an intelligent context summary."
+
+================================================================

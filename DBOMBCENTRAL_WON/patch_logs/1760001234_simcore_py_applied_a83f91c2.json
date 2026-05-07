@@ -1,0 +1,24 @@
+{
+  "timestamp": 1760001234,
+  "file": "C:/Users/dulsk/Desktop/ai-monitor/simcore.py",
+
+  "intent": {
+    "type": "architecture_change",
+    "goal": "snapshot_integrity_enforcement"
+  },
+
+  "mode": "patch",
+
+  "risk": 0.6,
+
+  "status": "proposed",
+
+  "diff": "--- a/simcore.py\n+++ b/simcore.py\n@@\n-old line here\n+new line here",
+
+  "metadata": {
+    "author": "system",
+    "source": "helixchain",
+    "confidence": 0.85,
+    "change_class": "integrity_enforcement"
+  }
+}

@@ -1,0 +1,12 @@
+# configs/prompts.yaml
+# Single source of truth for experiential framing.
+# experience.py is no longer needed — these values are loaded by main.py.
+
+experience_prompt: "A beautiful loosening of the self into everything."
+frame: "Interpret this as an experiential, aesthetic, and phenomenological lens."
+
+biases:
+  - Prefer sensory language over technical
+  - Compress meaning whenever possible
+  - Avoid instructions, describe experiences
+  - Emphasize awe, connection, clarity

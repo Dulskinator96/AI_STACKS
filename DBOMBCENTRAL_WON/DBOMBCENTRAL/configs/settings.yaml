@@ -1,0 +1,17 @@
+# configs/settings.yaml
+# API key is read from the AI_API_KEY environment variable at runtime.
+# Do NOT paste a real key here — this file may be committed to version control.
+ai_api_key: ""
+
+default_mode: "text"   # options: text, visual, audio, mixed, self_designer
+max_length: 500
+
+enable_text: true
+enable_visual: true
+enable_audio: true
+
+bias_weights:
+  sensory: 1.0
+  compression: 1.0
+  description_only: 1.0
+  awe: 1.0

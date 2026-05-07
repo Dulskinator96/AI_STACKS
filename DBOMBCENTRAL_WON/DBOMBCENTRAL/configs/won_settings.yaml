@@ -1,0 +1,30 @@
+# configs/won_settings.yaml — WON Agent Configuration
+# DBOMB ASCENDENT WON — ACAS-Phase1-v1.0
+
+# ── Local LLM (free, no API key) ──────────────────────────────────────────
+# Install Ollama: https://ollama.com
+# Then run: ollama pull llama3.2
+ollama_model: "llama3.2"     # or: mistral, phi3, gemma2, llama3.1
+timeout: 90                  # seconds before brain times out
+
+# ── Memory ────────────────────────────────────────────────────────────────
+memory_path:   "data/won_memory.db"
+projects_path: "data/projects.json"
+max_memory:    5000           # max SQLite entries before pruning oldest
+
+# ── Obsidian Vault ────────────────────────────────────────────────────────
+# Set this to your actual Obsidian vault folder path.
+# WON will write Briefs/, Plans/, Projects/, Research/, Sessions/ into it.
+# Example Windows: "C:/Users/dulsk/Documents/ObsidianVault"
+# Example Mac/Linux: "/Users/dulsk/Documents/ObsidianVault"
+obsidian_vault: "C:/Users/dulsk/Documents/Knowledge-Base"
+
+# ── Research ──────────────────────────────────────────────────────────────
+max_research_results: 5
+research_timeout: 10
+
+# ── Agent identity ────────────────────────────────────────────────────────
+agent_name:   "WON"
+agent_full:   "DBOMB ASCENDENT WON"
+agent_build:  "ACAS-Phase1-v1.0"
+agent_author: "DBOMBCENTRAL"

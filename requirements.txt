@@ -1,0 +1,8 @@
+PyQt6>=6.5.0
+uiautomation>=2.0.0
+requests>=2.28.0
+Pillow>=10.0.0
+numpy>=1.24.0
+pyperclip>=1.8.2
+pyttsx3>=2.90
+supabase>=2.3.0

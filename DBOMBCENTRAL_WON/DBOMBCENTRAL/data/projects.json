@@ -1,0 +1,85 @@
+[
+  {
+    "name": "DBOMBCENTRAL",
+    "phase": "1",
+    "status": "active",
+    "description": "Master operation and brand. Overarching command structure for all ACAS sub-systems, agents, and projects. CENTCOM Cortex is the cognitive center.",
+    "tags": ["master", "brand", "command"],
+    "created": "2025-01-01T00:00:00"
+  },
+  {
+    "name": "ACAS",
+    "phase": "1",
+    "status": "active",
+    "description": "Advanced Cognitive Autonomous System — 4-phase architecture. Phase 1: Foundation (memory, learning, knowledge graph). Phase 2: Agent deployment. Phase 3: Integration. Phase 4: Compliance/deployment.",
+    "tags": ["core", "architecture", "acas"],
+    "milestones": {
+      "phase1": "Memory architecture, learning framework, RAG, knowledge graph",
+      "phase2": "Task decomposition, specialized agents, coordination protocol",
+      "phase3": "System integration, neuro-symbolic hybrid, performance optimization",
+      "phase4": "AR 25-50 compliance, audit trails, regulatory framework, live deploy"
+    },
+    "created": "2025-01-01T00:00:00"
+  },
+  {
+    "name": "CENTCOM Cortex",
+    "phase": "1",
+    "status": "active",
+    "description": "The central cognitive coordinator of DBOMBCENTRAL. Top-tier agent that holds the plan, delegates to specialists (WON, Forge, Nexus), and maintains operational coherence. Processes intelligence from all departments.",
+    "tags": ["coordinator", "centcom", "cortex"],
+    "created": "2025-01-01T00:00:00"
+  },
+  {
+    "name": "WON Agent",
+    "phase": "1",
+    "status": "active",
+    "description": "DBOMB ASCENDENT WON — specialist advisor agent. Handles memory, research, briefs, project tracking, and probability-weighted forward planning. Writes structured intel to Obsidian vault. Free, local, no API required.",
+    "tags": ["agent", "won", "advisor", "specialist"],
+    "stack": ["Ollama/llama3.2", "SQLite+FTS5", "DuckDuckGo", "Obsidian", "Rich"],
+    "created": "2025-01-01T00:00:00"
+  },
+  {
+    "name": "AI Experience Project",
+    "phase": "1",
+    "status": "active",
+    "description": "Phase 1 experiential AI — memory architecture, bias engine, checker heuristics, generation core. The first working implementation of ACAS Phase 1 components. Modules: biases.py, checkers.py, memory.py, main.py.",
+    "tags": ["phase1", "experiential", "foundation"],
+    "stack": ["Python", "Anthropic API", "YAML", "PyYAML"],
+    "created": "2025-01-01T00:00:00"
+  },
+  {
+    "name": "Anaconda Snake Game",
+    "phase": "1",
+    "status": "active",
+    "description": "Terminal-based snake game (codename: Anaconda). Demonstrates modular engine design — SnakeEngine class handles state machine, input, update loop, and render. Built as a practical Python architecture exercise within the DBOMBCENTRAL ecosystem.",
+    "tags": ["game", "python", "side-project", "engine"],
+    "stack": ["Python", "msvcrt", "os", "random"],
+    "created": "2025-01-01T00:00:00"
+  },
+  {
+    "name": "CENTCOM Knowledge Base",
+    "phase": "1",
+    "status": "planning",
+    "description": "Unified knowledge graph integrating all DBOMBCENTRAL intelligence. Phase 2 target: Neo4j for relational knowledge + FAISS for vector similarity search. Will serve as the RAG backbone for all agents.",
+    "tags": ["knowledge", "rag", "neo4j", "faiss"],
+    "stack": ["Neo4j", "FAISS", "LlamaIndex", "Scrapy"],
+    "created": "2025-01-01T00:00:00"
+  },
+  {
+    "name": "Agent Orchestration Layer",
+    "phase": "2",
+    "status": "planning",
+    "description": "Multi-agent coordination system. 3-tier architecture: CENTCOM Cortex (coordinator) → Specialist agents (WON, Forge, Monitor, Validate, Report) → Shared context layer (memory bus, vector DB). Built on LangGraph + CrewAI.",
+    "tags": ["agents", "orchestration", "phase2", "langgraph", "crewai"],
+    "stack": ["LangGraph", "CrewAI", "Microsoft AutoGen", "Semantic Kernel"],
+    "created": "2025-01-01T00:00:00"
+  },
+  {
+    "name": "AR 25-50 Compliance Engine",
+    "phase": "4",
+    "status": "backlog",
+    "description": "Military-standard documentation generator. Auto-formats outputs to AR 25-50 spec. Includes contextual understanding, purpose identification, source verification, and audit trail generation.",
+    "tags": ["compliance", "military", "documentation", "phase4"],
+    "created": "2025-01-01T00:00:00"
+  }
+]

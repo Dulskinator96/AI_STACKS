@@ -1,0 +1,951 @@
+{
+  "ts": "2026-05-02T18:20:46.995662+00:00",
+  "target": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\",
+  "bandit": {
+    "errors": [],
+    "generated_at": "2026-05-02T18:20:48Z",
+    "metrics": {
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\core\\__init__.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 0,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\core\\agent_registry.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 134,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\core\\biases.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 26,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\core\\brain.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 82,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\core\\brief_engine.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 83,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\core\\centcom.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 180,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\core\\checkers.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 47,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\core\\master_brief.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 117,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\core\\memory.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 112,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\core\\obsidian.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 80,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\core\\predictor.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 90,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\core\\project_tracker.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 88,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\core\\researcher.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 62,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\won.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 1,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 1,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 266,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\ai-monitor\\ai-monitor\\native\\host.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 83,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\ai-monitor\\native\\host.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 83,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\app.py": {
+        "CONFIDENCE.HIGH": 8,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 2,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 10,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 703,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\gemini_bridge.py": {
+        "CONFIDENCE.HIGH": 6,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 6,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 307,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\generate_icon.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 12,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\ground_server.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 141,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\host.py": {
+        "CONFIDENCE.HIGH": 1,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 1,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 120,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\note_builder.py": {
+        "CONFIDENCE.HIGH": 0,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 0,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 252,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\perception.py": {
+        "CONFIDENCE.HIGH": 3,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 3,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 201,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\pipeline.py": {
+        "CONFIDENCE.HIGH": 3,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 3,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 341,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "C:\\Users\\dulsk\\Desktop\\ai-monitor\\security_expert.py": {
+        "CONFIDENCE.HIGH": 4,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 0,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 4,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 109,
+        "nosec": 0,
+        "skipped_tests": 0
+      },
+      "_totals": {
+        "CONFIDENCE.HIGH": 25,
+        "CONFIDENCE.LOW": 0,
+        "CONFIDENCE.MEDIUM": 3,
+        "CONFIDENCE.UNDEFINED": 0,
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 28,
+        "SEVERITY.MEDIUM": 0,
+        "SEVERITY.UNDEFINED": 0,
+        "loc": 3719,
+        "nosec": 0,
+        "skipped_tests": 0
+      }
+    },
+    "results": [
+      {
+        "code": "280                     if os.name == \"nt\":\n281                         os.startfile(vp)\n282                     else:\n",
+        "col_offset": 24,
+        "end_col_offset": 40,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\DBOMBCENTRAL_WON\\DBOMBCENTRAL\\won.py",
+        "issue_confidence": "MEDIUM",
+        "issue_cwe": {
+          "id": 78,
+          "link": "https://cwe.mitre.org/data/definitions/78.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Starting a process without a shell.",
+        "line_number": 281,
+        "line_range": [
+          281
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b606_start_process_with_no_shell.html",
+        "test_id": "B606",
+        "test_name": "start_process_with_no_shell"
+      },
+      {
+        "code": "84             sys.stdout.buffer.flush()\n85         except:\n86             pass\n87 \n",
+        "col_offset": 8,
+        "end_col_offset": 16,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\app.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 85,
+        "line_range": [
+          85,
+          86
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "185             )\n186         except Exception:\n187             pass\n188 \n",
+        "col_offset": 8,
+        "end_col_offset": 16,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\app.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 186,
+        "line_range": [
+          186,
+          187
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "313         self.open_sandbox_btn = QPushButton(\"Open Sandbox Folder\")\n314         self.open_sandbox_btn.clicked.connect(lambda: os.startfile(str(SANDBOX_DIR)))\n315         opt_btns.addWidget(self.open_sandbox_btn)\n",
+        "col_offset": 54,
+        "end_col_offset": 84,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\app.py",
+        "issue_confidence": "MEDIUM",
+        "issue_cwe": {
+          "id": 78,
+          "link": "https://cwe.mitre.org/data/definitions/78.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Starting a process without a shell.",
+        "line_number": 314,
+        "line_range": [
+          314
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b606_start_process_with_no_shell.html",
+        "test_id": "B606",
+        "test_name": "start_process_with_no_shell"
+      },
+      {
+        "code": "394         webbrowser.open(\"edge://extensions\")\n395         os.startfile(str(EXTENSION_DIR))\n396         self.status_label.setText(\n",
+        "col_offset": 8,
+        "end_col_offset": 40,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\app.py",
+        "issue_confidence": "MEDIUM",
+        "issue_cwe": {
+          "id": 78,
+          "link": "https://cwe.mitre.org/data/definitions/78.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Starting a process without a shell.",
+        "line_number": 395,
+        "line_range": [
+          395
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b606_start_process_with_no_shell.html",
+        "test_id": "B606",
+        "test_name": "start_process_with_no_shell"
+      },
+      {
+        "code": "517                             continue\n518                     except Exception:\n519                         pass\n520 \n",
+        "col_offset": 20,
+        "end_col_offset": 28,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\app.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 518,
+        "line_range": [
+          518,
+          519
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "527                     count_raw += 1\n528                 except Exception:\n529                     continue\n530 \n",
+        "col_offset": 16,
+        "end_col_offset": 28,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\app.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Continue detected.",
+        "line_number": 528,
+        "line_range": [
+          528,
+          529
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b112_try_except_continue.html",
+        "test_id": "B112",
+        "test_name": "try_except_continue"
+      },
+      {
+        "code": "556                     hits    = results.get(\"results\", [])\n557                 except Exception:\n558                     pass\n559 \n",
+        "col_offset": 16,
+        "end_col_offset": 24,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\app.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 557,
+        "line_range": [
+          557,
+          558
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "570                         })\n571                 except Exception:\n572                     pass\n573 \n",
+        "col_offset": 16,
+        "end_col_offset": 24,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\app.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 571,
+        "line_range": [
+          571,
+          572
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "727                     )\n728             except Exception:\n729                 pass\n730 \n",
+        "col_offset": 12,
+        "end_col_offset": 20,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\app.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 728,
+        "line_range": [
+          728,
+          729
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "857                     self.floating_widget.request_hide.emit()\n858             except Exception:\n859                 pass\n860             time.sleep(1)\n",
+        "col_offset": 12,
+        "end_col_offset": 20,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\app.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 858,
+        "line_range": [
+          858,
+          859
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "25 import threading\n26 import subprocess\n27 import argparse\n",
+        "col_offset": 0,
+        "end_col_offset": 17,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\gemini_bridge.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 78,
+          "link": "https://cwe.mitre.org/data/definitions/78.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Consider possible security implications associated with the subprocess module.",
+        "line_number": 26,
+        "line_range": [
+          26
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess",
+        "test_id": "B404",
+        "test_name": "blacklist"
+      },
+      {
+        "code": "235             cmd = GEMINI_CMD.split() if \" \" in GEMINI_CMD else [GEMINI_CMD]\n236             self.proc = subprocess.Popen(\n237                 cmd,\n238                 stdin=subprocess.PIPE,\n239                 stdout=subprocess.PIPE,\n240                 stderr=subprocess.STDOUT,\n241                 text=True,\n242                 bufsize=1,\n243             )\n244         except FileNotFoundError:\n",
+        "col_offset": 24,
+        "end_col_offset": 13,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\gemini_bridge.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 78,
+          "link": "https://cwe.mitre.org/data/definitions/78.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "subprocess call - check for execution of untrusted input.",
+        "line_number": 236,
+        "line_range": [
+          236,
+          237,
+          238,
+          239,
+          240,
+          241,
+          242,
+          243
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html",
+        "test_id": "B603",
+        "test_name": "subprocess_without_shell_equals_true"
+      },
+      {
+        "code": "246             try:\n247                 self.proc = subprocess.Popen(\n248                     [\"npx\", \"@google/gemini-cli\"],\n249                     stdin=subprocess.PIPE,\n250                     stdout=subprocess.PIPE,\n251                     stderr=subprocess.STDOUT,\n252                     text=True,\n253                     bufsize=1,\n254                 )\n255             except Exception as exc:\n",
+        "col_offset": 28,
+        "end_col_offset": 17,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\gemini_bridge.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 78,
+          "link": "https://cwe.mitre.org/data/definitions/78.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Starting a process with a partial executable path",
+        "line_number": 247,
+        "line_range": [
+          247,
+          248,
+          249,
+          250,
+          251,
+          252,
+          253,
+          254
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b607_start_process_with_partial_path.html",
+        "test_id": "B607",
+        "test_name": "start_process_with_partial_path"
+      },
+      {
+        "code": "246             try:\n247                 self.proc = subprocess.Popen(\n248                     [\"npx\", \"@google/gemini-cli\"],\n249                     stdin=subprocess.PIPE,\n250                     stdout=subprocess.PIPE,\n251                     stderr=subprocess.STDOUT,\n252                     text=True,\n253                     bufsize=1,\n254                 )\n255             except Exception as exc:\n",
+        "col_offset": 28,
+        "end_col_offset": 17,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\gemini_bridge.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 78,
+          "link": "https://cwe.mitre.org/data/definitions/78.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "subprocess call - check for execution of untrusted input.",
+        "line_number": 247,
+        "line_range": [
+          247,
+          248,
+          249,
+          250,
+          251,
+          252,
+          253,
+          254
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html",
+        "test_id": "B603",
+        "test_name": "subprocess_without_shell_equals_true"
+      },
+      {
+        "code": "285                 time.sleep(0.3)\n286             except Exception:\n287                 pass\n288 \n",
+        "col_offset": 12,
+        "end_col_offset": 20,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\gemini_bridge.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 286,
+        "line_range": [
+          286,
+          287
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "354                     self.proc.stdin.flush()\n355                 except Exception:\n356                     pass\n357                 try:\n",
+        "col_offset": 16,
+        "end_col_offset": 24,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\gemini_bridge.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 355,
+        "line_range": [
+          355,
+          356
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "160                     ctx = won_pipeline.get_context_snippet()\n161                 except Exception:\n162                     pass\n163             send_message({'status': 'ok', 'context': ctx})\n",
+        "col_offset": 16,
+        "end_col_offset": 24,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\host.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 161,
+        "line_range": [
+          161,
+          162
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "166                 parts.append(f\"[{ts_short}] {src} ({c['mode']}): {preview}\")\n167     except Exception:\n168         pass\n169 \n",
+        "col_offset": 4,
+        "end_col_offset": 12,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\perception.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 167,
+        "line_range": [
+          167,
+          168
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "178                 parts.append(blocks[-1][:600])\n179         except Exception:\n180             pass\n181 \n",
+        "col_offset": 8,
+        "end_col_offset": 16,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\perception.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 179,
+        "line_range": [
+          179,
+          180
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "191             parts.append(f\"\\n=== GROUND ACTIVITY: {summary} ===\")\n192     except Exception:\n193         pass\n194 \n",
+        "col_offset": 4,
+        "end_col_offset": 12,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\perception.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 192,
+        "line_range": [
+          192,
+          193
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "114                     files[f.name] = f.read_text(encoding=\"utf-8\", errors=\"ignore\")[:500]\n115                 except Exception:\n116                     pass\n117     return files\n",
+        "col_offset": 16,
+        "end_col_offset": 24,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\pipeline.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 115,
+        "line_range": [
+          115,
+          116
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "227             base = _memory.session_summary()\n228         except Exception:\n229             pass\n230     base[\"palace_available\"] = _load_palace()\n",
+        "col_offset": 8,
+        "end_col_offset": 16,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\pipeline.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 228,
+        "line_range": [
+          228,
+          229
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "426                 return True\n427             except Exception:\n428                 pass\n429         print(f\"[Pipeline] contribute() \u2014 {exc}\", file=sys.stderr)\n",
+        "col_offset": 12,
+        "end_col_offset": 20,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\pipeline.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 703,
+          "link": "https://cwe.mitre.org/data/definitions/703.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Try, Except, Pass detected.",
+        "line_number": 427,
+        "line_range": [
+          427,
+          428
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b110_try_except_pass.html",
+        "test_id": "B110",
+        "test_name": "try_except_pass"
+      },
+      {
+        "code": "9 import json\n10 import subprocess\n11 import requests\n",
+        "col_offset": 0,
+        "end_col_offset": 17,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\security_expert.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 78,
+          "link": "https://cwe.mitre.org/data/definitions/78.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "Consider possible security implications associated with the subprocess module.",
+        "line_number": 10,
+        "line_range": [
+          10
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess",
+        "test_id": "B404",
+        "test_name": "blacklist"
+      },
+      {
+        "code": "67         try:\n68             result = subprocess.run(cmd, capture_output=True, text=True)\n69             return json.loads(result.stdout)\n",
+        "col_offset": 21,
+        "end_col_offset": 72,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\security_expert.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 78,
+          "link": "https://cwe.mitre.org/data/definitions/78.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "subprocess call - check for execution of untrusted input.",
+        "line_number": 68,
+        "line_range": [
+          68
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html",
+        "test_id": "B603",
+        "test_name": "subprocess_without_shell_equals_true"
+      },
+      {
+        "code": "74                 try:\n75                     result = subprocess.run([str(bandit_exe), \"-r\", path, \"-f\", \"json\"], capture_output=True, text=True)\n76                     return json.loads(result.stdout)\n",
+        "col_offset": 29,
+        "end_col_offset": 120,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\security_expert.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 78,
+          "link": "https://cwe.mitre.org/data/definitions/78.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "subprocess call - check for execution of untrusted input.",
+        "line_number": 75,
+        "line_range": [
+          75
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html",
+        "test_id": "B603",
+        "test_name": "subprocess_without_shell_equals_true"
+      },
+      {
+        "code": "87             env[\"PYTHONIOENCODING\"] = \"utf-8\"\n88             result = subprocess.run(cmd, capture_output=True, text=True, env=env, encoding=\"utf-8\")\n89             if not result.stdout.strip():\n",
+        "col_offset": 21,
+        "end_col_offset": 99,
+        "filename": "C:\\Users\\dulsk\\Desktop\\ai-monitor\\security_expert.py",
+        "issue_confidence": "HIGH",
+        "issue_cwe": {
+          "id": 78,
+          "link": "https://cwe.mitre.org/data/definitions/78.html"
+        },
+        "issue_severity": "LOW",
+        "issue_text": "subprocess call - check for execution of untrusted input.",
+        "line_number": 88,
+        "line_range": [
+          88
+        ],
+        "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b603_subprocess_without_shell_equals_true.html",
+        "test_id": "B603",
+        "test_name": "subprocess_without_shell_equals_true"
+      }
+    ]
+  },
+  "semgrep": {
+    "error": "Semgrep returned empty output. Stderr: 'charmap' codec can't encode character '\\u202a' in position 1404193: character maps to <undefined>\nTraceback (most recent call last):\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\commands\\wrapper.py\", line 49, in wrapper\n    func(*args, **kwargs)\n    ~~~~^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\commands\\scan.py\", line 1087, in scan\n    ) = semgrep.run_scan.run_scan(\n        ~~~~~~~~~~~~~~~~~~~~~~~~~^\n        dump_command_for_core=dump_command_for_core,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<52 lines>...\n        x_mem_policy=x_mem_policy,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\telemetry.py\", line 462, in inner\n    return f(*args, **kwargs)\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\simple_profiling.py\", line 100, in wrapper\n    result = func(*args, **kwargs)\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\run_scan.py\", line 1266, in run_scan\n    configs_obj, config_errors = Config.from_config_list(\n                                 ~~~~~~~~~~~~~~~~~~~~~~~^\n        config_strs or [],\n        ^^^^^^^^^^^^^^^^^^\n        project_url,\n        ^^^^^^^^^^^^\n        no_python_schema_validation=x_no_python_schema_validation,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\telemetry.py\", line 462, in inner\n    return f(*args, **kwargs)\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\config_resolver.py\", line 644, in from_config_list\n    resolved_config, config_errors = resolve_config(\n                                     ~~~~~~~~~~~~~~^\n        config,\n        ^^^^^^^\n    ...<2 lines>...\n        no_python_schema_validation=no_python_schema_validation,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\telemetry.py\", line 462, in inner\n    return f(*args, **kwargs)\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\config_resolver.py\", line 553, in resolve_config\n    config, errors = parse_config_files(\n                     ~~~~~~~~~~~~~~~~~~^\n        config_loader.load_config(),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        force_jsonschema=force_jsonschema,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        no_python_schema_validation=no_python_schema_validation,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\telemetry.py\", line 462, in inner\n    return f(*args, **kwargs)\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\config_resolver.py\", line 526, in parse_config_files\n    config_data, config_errors = future.result()\n                                 ~~~~~~~~~~~~~^^\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\concurrent\\futures\\_base.py\", line 443, in result\n    return self.__get_result()\n           ~~~~~~~~~~~~~~~~~^^\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\concurrent\\futures\\_base.py\", line 395, in __get_result\n    raise self._exception\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\concurrent\\futures\\thread.py\", line 86, in run\n    result = ctx.run(self.task)\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\concurrent\\futures\\thread.py\", line 73, in run\n    return fn(*args, **kwargs)\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\config_resolver.py\", line 481, in context_aware_parse_config_string\n    return parse_config_string(*args, **kwargs)\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\telemetry.py\", line 462, in inner\n    return f(*args, **kwargs)\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\semgrep\\config_resolver.py\", line 991, in parse_config_string\n    fp.write(contents)\n    ~~~~~~~~^^^^^^^^^^\n  File \"C:\\Users\\dulsk\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\encodings\\cp1252.py\", line 19, in encode\n    return codecs.charmap_encode(input,self.errors,encoding_table)[0]\n           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nUnicodeEncodeError: 'charmap' codec can't encode character '\\u202a' in position 1404193: character maps to <undefined>\n"
+  }
+}

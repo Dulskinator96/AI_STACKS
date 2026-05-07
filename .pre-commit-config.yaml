@@ -1,0 +1,21 @@
+# AI_MONITOR pre-commit configuration.
+#
+# DORMANT until the user explicitly enables it:
+#   1. git init                 (this dir is not yet a repo)
+#   2. pip install pre-commit
+#   3. pre-commit install
+#
+# All hooks below are `repo: local` — they invoke scripts that already exist
+# in this directory. No external repo refs are listed, so this file does not
+# require network access or downloading third-party hook repos. This conforms
+# to ENGINEERING_CORE.md "OFFLINE-FIRST OPERATION".
+
+repos:
+  - repo: local
+    hooks:
+      - id: ai-monitor-tests
+        name: AI_MONITOR test gate
+        entry: cmd.exe /c run_tests.bat
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]

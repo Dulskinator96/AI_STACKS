@@ -1,0 +1,9 @@
+{
+  "name": "com.aimonitor.host",
+  "description": "AI Chat Monitor Native Host",
+  "path": "C:\\Users\\YOURUSERNAME\\Documents\\AI_Monitor\\native\\host.py",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://YOUR_EXTENSION_ID_HERE/"
+  ]
+}

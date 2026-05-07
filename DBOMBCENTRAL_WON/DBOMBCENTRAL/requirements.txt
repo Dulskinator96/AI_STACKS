@@ -1,0 +1,7 @@
+# WON — DBOMB ASCENDENT
+# All free. No paid API required.
+
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+pyyaml>=6.0
+rich>=13.0.0
