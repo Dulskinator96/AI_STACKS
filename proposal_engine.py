@@ -327,13 +327,16 @@ class ProposalEngine:
             return ProposalResult(success=True, proposal=proposal,
                                   raw_llm=raw, duration=time.time() - t0)
         except SchemaError as e1:
-            pass  # fall through to retry
+            # Capture before the except block exits — Python 3 clears the
+            # exception binding after the block, so referencing `e1` later
+            # would raise NameError.
+            first_error_msg = str(e1)
 
         # Retry with explicit correction nudge
         retry_prompt = (
             user_prompt
             + f"\n\nYour previous output was rejected by the schema validator.\n"
-              f"Validation error: {e1}\n"
+              f"Validation error: {first_error_msg}\n"
               f"Output ONLY a single valid JSON object — no prose."
         )
         try:
@@ -345,7 +348,7 @@ class ProposalEngine:
         except (SchemaError, requests.RequestException) as e2:
             return ProposalResult(
                 success  = False,
-                error    = f"Schema validation failed after retry. First: {e1} | Retry: {e2}",
+                error    = f"Schema validation failed after retry. First: {first_error_msg} | Retry: {e2}",
                 raw_llm  = raw,
                 duration = time.time() - t0,
             )

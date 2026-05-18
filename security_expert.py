@@ -65,14 +65,14 @@ class CyberSecurityExpert:
     def _exec_bandit(self, path: str) -> dict:
         cmd = [sys.executable, "-m", "bandit", "-r", path, "-f", "json"]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             return json.loads(result.stdout)
         except Exception as e:
             # Try direct script path
             bandit_exe = self.scripts_dir / "bandit.exe"
             if bandit_exe.exists():
                 try:
-                    result = subprocess.run([str(bandit_exe), "-r", path, "-f", "json"], capture_output=True, text=True)
+                    result = subprocess.run([str(bandit_exe), "-r", path, "-f", "json"], capture_output=True, text=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
                     return json.loads(result.stdout)
                 except Exception as e2:
                     return {"error": f"Bandit execution failed: {e2}"}
@@ -85,7 +85,7 @@ class CyberSecurityExpert:
             # Fix for Windows encoding issues
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
-            result = subprocess.run(cmd, capture_output=True, text=True, env=env, encoding="utf-8")
+            result = subprocess.run(cmd, capture_output=True, text=True, env=env, encoding="utf-8", creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             if not result.stdout.strip():
                 return {"error": f"Semgrep returned empty output. Stderr: {result.stderr}"}
             return json.loads(result.stdout)

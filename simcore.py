@@ -741,10 +741,10 @@ def _demo() -> int:
     ]
     for action in script:
         tick = sc.tick(action)
-        print(_format_tick(tick, sc.current_world()))
-        print("-" * 60)
+        _log.debug(_format_tick(tick, sc.current_world()))
+        _log.debug("-" * 60)
     ok, reason = sc.verify()
-    print(f"\n[chain integrity] ok={ok} reason={reason}")
+    _log.debug(f"\n[chain integrity] ok={ok} reason={reason}")
     return 0 if ok else 1
 
 
@@ -768,12 +768,12 @@ def main(argv: list[str] | None = None) -> int:
     sc.bootstrap()
     if args.cmd == "verify":
         ok, reason = sc.verify()
-        print(json.dumps({"ok": ok, "reason": reason}))
+        _log.debug(json.dumps({"ok": ok, "reason": reason}))
         return 0 if ok else 1
     if args.cmd == "tick":
         action = json.loads(args.action_json)
         tick = sc.tick(action)
-        print(_format_tick(tick, sc.current_world()))
+        _log.debug(_format_tick(tick, sc.current_world()))
         return 0 if tick.accepted else 1
     if args.cmd == "show":
         w = sc.current_world()

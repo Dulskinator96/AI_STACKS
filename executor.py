@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Optional
 
 from proposal_engine import ChangeItem, Proposal
+import logging
+_log = logging.getLogger(__name__)
 
 # ── Rollback store ────────────────────────────────────────────────────────────
 
@@ -425,6 +427,6 @@ def list_rollback_sessions() -> list[dict]:
                     "timestamp":   m.get("timestamp"),
                     "files":       m.get("files", []),
                 })
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
     return sessions

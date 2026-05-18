@@ -31,6 +31,8 @@ from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional
+import logging
+_log = logging.getLogger(__name__)
 
 _HERE    = Path(__file__).resolve().parent
 SAVE_DIR = Path.home() / "Documents" / "AI_Monitor"
@@ -146,16 +148,16 @@ class PulseEngine:
         for cb in cbs:
             try:
                 cb(event)
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
         self._log(event)
 
     def _log(self, event: PulseEvent):
         try:
             with open(PULSE_LOG, "a", encoding="utf-8") as f:
                 f.write(f"{event.ts} [{event.loop}:{event.kind}] {event.data}\n")
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     def _loop_runner(self, name: str, fn: Callable, interval: float):
         """Wrap each loop function with error recovery and timing."""
@@ -237,7 +239,8 @@ No preamble. No explanation. Just the insight line."""
             if platform.system() == "Windows":
                 result = subprocess.run(
                     ["wmic", "OS", "get", "FreePhysicalMemory,TotalVisibleMemorySize", "/VALUE"],
-                    capture_output=True, text=True, timeout=3
+                    capture_output=True, text=True, timeout=3,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
                 )
                 lines = {l.split("=")[0]: l.split("=")[1]
                          for l in result.stdout.splitlines() if "=" in l}
@@ -245,8 +248,8 @@ No preamble. No explanation. Just the insight line."""
                 total = int(lines.get("TotalVisibleMemorySize", "1")) // 1024
                 pct   = 100 - int(free / total * 100)
                 observations.append(f"RAM: {pct}% used ({free}MB free)")
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
         if observations:
             summary = " | ".join(observations)
@@ -268,15 +271,16 @@ No preamble. No explanation. Just the insight line."""
             import subprocess
             result = subprocess.run(
                 ["powershell", "-Command", "Get-Clipboard"],
-                capture_output=True, text=True, timeout=2
+                capture_output=True, text=True, timeout=2,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
             )
             clip = result.stdout.strip()
             if clip and len(clip) > 100 and self._looks_like_ai_content(clip):
                 h = hashlib.md5(clip.encode()).hexdigest()[:8]
                 harvested.append(f"Clipboard fragment [{h}]: {clip[:80]}…")
                 self._store_to_memory(clip, "harvest", ["clipboard", "harvested"])
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
         # Temp file harvest — find abandoned AI session files
         try:
@@ -290,10 +294,10 @@ No preamble. No explanation. Just the insight line."""
                             content = f.read_text(encoding="utf-8", errors="ignore")
                             if len(content) > 200 and self._looks_like_ai_content(content):
                                 harvested.append(f"Temp fragment: {f.name}")
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except Exception as e:
+                        _log.warning(f'caught exception: {e}')
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
         if harvested:
             self._emit(PulseEvent("HarvestLoop", "captured",
@@ -412,8 +416,8 @@ No preamble. No explanation. Just the insight line."""
                 try:
                     content = f.read_text(encoding="utf-8", errors="ignore")
                     snippets.append(f"[{f.stem}]\n{content[:400]}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
             return "\n\n".join(snippets)
         except Exception:
             return ""
@@ -431,22 +435,22 @@ No preamble. No explanation. Just the insight line."""
                          "tags": tags, "content": content[:500]}
                 with open(harvest_file, "a", encoding="utf-8") as f:
                     f.write(json.dumps(entry) + "\n")
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
     def _load_behavior(self) -> dict:
         try:
             if STATE_FILE.exists():
                 return json.loads(STATE_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
         return {"temperature": 0.7, "approval_rate": 0.5, "creativity_bias": 0.5}
 
     def _save_behavior(self):
         try:
             STATE_FILE.write_text(json.dumps(self._behavior, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────

@@ -31,6 +31,8 @@ import requests as _requests
 from datetime import datetime, timedelta
 from pathlib import Path
 from collections import deque
+import logging
+_log = logging.getLogger(__name__)
 
 # ── Path bootstrap ─────────────────────────────────────────────────────────────
 _HERE     = Path(__file__).resolve().parent
@@ -71,8 +73,8 @@ def log(msg: str, level: str = "INFO"):
         if DAEMON_LOG.stat().st_size > 5_000_000:
             lines = DAEMON_LOG.read_text(encoding="utf-8").splitlines()
             DAEMON_LOG.write_text("\n".join(lines[-2000:]) + "\n", encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f'caught exception: {e}')
 
 
 # ── Shared daemon state ────────────────────────────────────────────────────────
@@ -108,8 +110,8 @@ class DaemonState:
                 self.cognition_count  = saved.get("cognition_count", 0)
                 self.research_count   = saved.get("research_count", 0)
                 log("State restored from disk")
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
     def save(self):
         with self._lock:
@@ -125,8 +127,8 @@ class DaemonState:
                     "learning_weights":  self.learning_weights,
                     "last_updated":      datetime.now().isoformat(),
                 }, indent=2), encoding="utf-8")
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
     def add_notification(self, title: str, body: str, priority: str = "normal"):
         with self._lock:
@@ -150,8 +152,8 @@ class DaemonState:
                     json.dumps(existing, indent=2, ensure_ascii=False),
                     encoding="utf-8"
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
     def record_outcome(self, task: str, score: float):
         """Record the quality score of a completed task for adaptive learning."""
@@ -343,8 +345,8 @@ class PerceptionEngine:
                 for key, label in targets.items():
                     if key in name:
                         running.append(label)
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
         return list(set(running))
 
     def _detect_file_changes(self) -> list[str]:
@@ -359,8 +361,8 @@ class PerceptionEngine:
                     if key in self._file_hashes and self._file_hashes[key] != h:
                         changed.append(f.name)
                     self._file_hashes[key] = h
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
         return changed[:5]
 
     def _count_vault_notes(self) -> dict:
@@ -476,7 +478,7 @@ If YES: ESCALATION_TITLE: <five words or fewer>"""
             import re
             title_match = re.search(r"ESCALATION_TITLE:\s*(.+)", thought)
             title = title_match.group(1).strip() if title_match else "WON has a thought"
-            body  = thought.replace(f"ESCALATE: YES", "").strip()[:300]
+            body  = thought.replace("ESCALATE: YES", "").strip()[:300]
             self._state.add_notification(title, body, priority="normal")
             log(f"Escalation: {title}")
 
@@ -685,8 +687,8 @@ class ResearchEngine:
                 f"---\n*Generated autonomously by WON Daemon*\n",
                 encoding="utf-8"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     def run_loop(self):
         log("ResearchEngine started")
@@ -874,8 +876,8 @@ If nothing significant found, respond: {{"area": "none", "inefficiency": "no iss
                     )
                     log(f"SystemForge audit: {finding.get('inefficiency','')[:80]}")
                     return finding
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
         return None
 
     def _read_relevant_source(self, topic: str) -> str:
@@ -895,8 +897,8 @@ If nothing significant found, respond: {{"area": "none", "inefficiency": "no iss
                         content = path.read_text(encoding="utf-8", errors="ignore")
                         # Return relevant section (first 1500 chars)
                         return content[:1500]
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
         return "Source file not accessible for this audit."
 
 # ── Web Validation Engine ──────────────────────────────────────────────────────
@@ -969,8 +971,8 @@ class WebValidationEngine:
                 try:
                     from profiler import get_profile
                     get_profile().update_agent_dna("ValidationAgent", result["confidence"])
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
 
             except Exception as exc:
                 log(f"WebValidation entry error: {exc}", "WARN")
@@ -1002,8 +1004,8 @@ class WebValidationEngine:
                         "evidence":   abstract[:300],
                         "method":     "ddg",
                     }
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
         return {"valid": None, "confidence": 0.3, "source": None, "evidence": None, "method": "none"}
 
     def run_loop(self):
@@ -1041,8 +1043,8 @@ class WONDaemon:
             from profiler import get_profile
             get_profile().start_session()
             log("OperatorProfile: session started")
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     def start(self):
         mem_status = "Supabase" if (self.memory._db and self.memory._db.available()) else "offline"
@@ -1146,7 +1148,7 @@ class WONDaemon:
         sys.exit(0)
 
     def status(self):
-        print(json.dumps(self.state.status_dict(), indent=2))
+        _log.debug(json.dumps(self.state.status_dict(), indent=2))
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
@@ -1165,9 +1167,9 @@ def main():
     if args.status:
         if STATE_FILE.exists():
             state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-            print(json.dumps(state, indent=2))
+            _log.debug(json.dumps(state, indent=2))
         else:
-            print("Daemon has not run yet.")
+            _log.debug("Daemon has not run yet.")
         return
 
     daemon = WONDaemon()

@@ -579,7 +579,7 @@ Speak in first person as {persona['name']}. Be direct, specific, expert-level.""
                     importance = 0.6,
                 )
         except Exception:
-            pass
+            _log.warning("swallowed exception")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

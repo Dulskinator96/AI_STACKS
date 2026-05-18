@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 import requests
+import logging
+_log = logging.getLogger(__name__)
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
@@ -138,8 +140,8 @@ def _load_cache() -> dict:
     if CACHE_PATH.exists():
         try:
             return json.loads(CACHE_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
     return {}
 
 
@@ -245,8 +247,8 @@ def _parse_python(path: str, source: str) -> tuple[list[SymbolBrief], list[str],
                 if "__name__" in test and "__main__" in test:
                     entry_points.append('__name__ == "__main__"')
                     break
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
     return symbols, local_imports, ext_imports, entry_points, config_vars
 
@@ -280,8 +282,8 @@ def _analyze_text_file(path: str, ext: str, source: str) -> tuple[list[tuple[str
             data = json.loads(source)
             if isinstance(data, dict):
                 config_vars = [(k, type(v).__name__) for k, v in list(data.items())[:20]]
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     elif ext in (".yaml", ".yml"):
         file_type = "config"

@@ -238,7 +238,7 @@ def run():
                 obsidian.write_research(query, results)
                 memory.store("Research: " + query + "\n" + "\n".join(r["summary"] for r in results),
                              "research", tags=["research", query.split()[0]])
-                console.print(f"  [green]✓ Research saved to Obsidian.[/green]")
+                console.print("  [green]✓ Research saved to Obsidian.[/green]")
 
             elif cmd == "suggest":
                 suggestions = predictor.suggest(memory, tracker, count=3)
@@ -260,7 +260,7 @@ def run():
                                     border_style="magenta"))
                 obsidian.write_brief(project, brief["markdown"])
                 memory.store(brief["display"], "brief", tags=["brief", project.lower()])
-                console.print(f"  [green]✓ Brief saved to Obsidian.[/green]")
+                console.print("  [green]✓ Brief saved to Obsidian.[/green]")
 
             elif cmd.startswith("plan "):
                 project = raw[5:].strip()

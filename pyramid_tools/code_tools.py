@@ -34,6 +34,7 @@ def tool_search_code(query: str, pattern: str = "*.py", **_) -> str:
         result = subprocess.run(
             ["rg", "--no-heading", "-n", "--glob", pattern, query, str(_PROJECT_ROOT)],
             capture_output=True, text=True, timeout=10,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
         )
         if result.returncode in (0, 1):
             lines = result.stdout.strip().splitlines()[:30]
@@ -126,6 +127,7 @@ def tool_run_python(code: str, **_) -> str:
             [sys.executable, tmp_path],
             capture_output=True, text=True,
             timeout=SANDBOX_TIMEOUT,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
         )
         out = proc.stdout[:800]
         err = proc.stderr[:400] if proc.returncode != 0 else ""
@@ -229,6 +231,7 @@ def tool_git_log(n: str = "10", **_) -> str:
             ["git", "-C", str(_PROJECT_ROOT), "log",
              f"--max-count={int(n)}", "--oneline", "--no-decorate"],
             capture_output=True, text=True, timeout=8,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
         )
         return proc.stdout.strip() or "No git history found"
     except FileNotFoundError:
@@ -267,6 +270,7 @@ def tool_run_tests(path: str = "tests", **_) -> str:
             [sys.executable, "-m", "pytest", str(target), "-v", "--tb=short", "-q"],
             capture_output=True, text=True, timeout=60,
             cwd=str(_PROJECT_ROOT),
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
         )
         return (proc.stdout + proc.stderr)[:1200].strip()
     except subprocess.TimeoutExpired:
@@ -287,6 +291,7 @@ def tool_lint_code(file: str, **_) -> str:
             [sys.executable, "-m", "flake8", "--max-line-length=100",
              "--extend-ignore=E203,W503", str(path)],
             capture_output=True, text=True, timeout=15,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
         )
         out = (proc.stdout + proc.stderr).strip()
         return out or "No lint issues found"

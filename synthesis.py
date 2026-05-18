@@ -33,6 +33,8 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+import logging
+_log = logging.getLogger(__name__)
 
 _HERE    = Path(__file__).resolve().parent
 SAVE_DIR = Path.home() / "Documents" / "AI_Monitor"
@@ -362,7 +364,7 @@ class VideoSynth:
     @classmethod
     def ffmpeg_available(cls) -> bool:
         try:
-            subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=3)
+            subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=3, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             return True
         except Exception:
             return False
@@ -452,15 +454,15 @@ class VideoSynth:
                     "-pix_fmt", "yuv420p",
                     "-crf", "18",
                     str(out)
-                ], capture_output=True, timeout=120)
+                ], capture_output=True, timeout=120, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
                 # Cleanup frames
                 for f in frames_dir.glob("frame_*.png"):
                     try: f.unlink()
                     except Exception: pass
                 if out.exists():
                     return out
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
         # Fallback: return first frame as PNG if FFmpeg unavailable
         first = frames_dir / "frame_00000.png"
@@ -498,8 +500,8 @@ class AudioBrief:
             engine.runAndWait()
             if out_path.exists():
                 return out_path
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
         return None
 
 

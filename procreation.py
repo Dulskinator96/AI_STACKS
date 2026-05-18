@@ -36,6 +36,8 @@ import requests
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable
+import logging
+_log = logging.getLogger(__name__)
 
 SAVE_DIR      = Path.home() / "Documents" / "AI_Monitor"
 AGENT_DIR     = SAVE_DIR / "agents"
@@ -285,8 +287,8 @@ class AgentInstance:
         if callback:
             try:
                 callback(result)
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
         self._archive(result)
         return result
 
@@ -322,8 +324,8 @@ class AgentInstance:
             f = AGENT_DIR / f"{self.agent_id}.jsonl"
             with open(f, "a", encoding="utf-8") as fp:
                 fp.write(json.dumps(result, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
 
 # ── Procreation Engine ────────────────────────────────────────────────────────
@@ -387,8 +389,8 @@ class ProcreationEngine:
         try:
             from profiler import get_profile
             get_profile().update_agent_dna(agent_type, dna.fitness)
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     def _sync_gene_pool(self, agent_type: str):
         dna = self._dna[agent_type]
@@ -404,8 +406,8 @@ class ProcreationEngine:
                      "event": event, **details}
             with open(LINEAGE_FILE, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     # ── Spawn ──────────────────────────────────────────────────────────────────
 
@@ -548,8 +550,8 @@ class ProcreationEngine:
             try:
                 for ln in f.read_text(encoding="utf-8").strip().splitlines()[-5:]:
                     results.append(json.loads(ln))
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
         return sorted(results, key=lambda x: x.get("ts", ""), reverse=True)[:20]
 
     def subscribe(self, callback: Callable):
@@ -573,23 +575,23 @@ class ProcreationEngine:
         for cb in cbs:
             try:
                 cb(msg)
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
     def _load_gene_pool(self) -> dict:
         try:
             if GENE_POOL.exists():
                 return json.loads(GENE_POOL.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
         return {}
 
     def _save_gene_pool(self):
         try:
             GENE_POOL.write_text(json.dumps(self._gene_pool, indent=2, ensure_ascii=False),
                                  encoding="utf-8")
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
 
 # ── Singleton + convenience API ───────────────────────────────────────────────

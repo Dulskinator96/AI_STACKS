@@ -659,7 +659,7 @@ class ConsciousEnsembleOrchestrator(EnsembleOrchestrator):
                     message=msg, result=result,
                 ))
             except Exception:
-                pass
+                _log.warning("swallowed exception")
 
         # ── Homeostatic recovery ──────────────────────────────────────────────
         for agent in self._conscious_agents:

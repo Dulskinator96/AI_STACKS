@@ -29,6 +29,8 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+import logging
+_log = logging.getLogger(__name__)
 
 _HERE     = Path(__file__).resolve().parent
 _WON_ROOT = Path(os.environ.get("WON_PATH", str(_HERE)))
@@ -575,7 +577,7 @@ class AgentLoop:
                     for e in entries
                 )
         except Exception:
-            pass
+            _log.warning("swallowed exception")
         return ""
 
     def _get_ground_state(self) -> str:
@@ -597,7 +599,7 @@ class AgentLoop:
                     tags    = ["claude", "api", "agent"],
                 )
         except Exception:
-            pass
+            _log.warning("swallowed exception")
 
         try:
             import perception as pc
@@ -608,7 +610,7 @@ class AgentLoop:
                 tags    = ["claude", "api", f"task_{resp.task_id[:8]}"],
             )
         except Exception:
-            pass
+            _log.warning("swallowed exception")
 
 
 # ── Utilities ────────────────────────────────────────────────────────────────

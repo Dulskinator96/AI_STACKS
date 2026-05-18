@@ -53,7 +53,7 @@ import urllib.robotparser
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
-from urllib.parse import urlparse, quote_plus
+from urllib.parse import urlparse
 
 import requests
 
@@ -61,12 +61,22 @@ from config import ENGINEERING_CORE_PROMPT
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
+_STRATUM_LOG_DIR = Path.home() / ".stratum"
+_STRATUM_LOG_DIR.mkdir(parents=True, exist_ok=True)
+_STRATUM_LOG_FILE = _STRATUM_LOG_DIR / "stratum.log"
+
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] %(name)s %(levelname)s — %(message)s",
     datefmt="%H:%M:%S",
+    handlers=[
+        logging.FileHandler(str(_STRATUM_LOG_FILE), encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+    force=True,
 )
 _log = logging.getLogger("pyramid.ensemble")
+_log.info("=== STRATUM log opened — file: %s ===", _STRATUM_LOG_FILE)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -503,8 +513,8 @@ class WebFetcher:
                     "score":   score,
                     "source":  "ddg_instant",
                 })
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
         # 2. HTML search
         try:
@@ -530,8 +540,8 @@ class WebFetcher:
                         "snippet": snippet, "score": score,
                         "source": "ddg_html",
                     })
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
         return sorted(results, key=lambda r: -r["score"])[:n]
 
@@ -951,11 +961,49 @@ class ImplementationAgent(BaseAgent):
     agent_name  = "Implementation"
     agent_emoji = "💻"
 
+    # Cached Implementer surface — refreshed on each R1, reused for R2.
+    _implementer_findings: str = ""
+
+    def _scan_implementer_surface(self) -> str:
+        """Return a short text block of top CRITICAL+HIGH detector findings.
+
+        Self-healing loop hook (R1 only). Catches its own exceptions so a
+        broken implementer_loop never kills the agent.
+        """
+        try:
+            from implementer_loop import (
+                get_implementer, SEVERITY_CRITICAL, SEVERITY_HIGH,
+            )
+            issues = get_implementer().scan_once()
+            priority = [
+                i for i in issues
+                if i.severity in (SEVERITY_CRITICAL, SEVERITY_HIGH)
+            ][:6]
+            if not priority:
+                return ""
+            lines = ["", "DETECTED CODE-HEALTH ISSUES (Implementer scan):"]
+            for i in priority:
+                lines.append(
+                    f"- {i.severity}: {i.file}:{i.line} {i.kind} "
+                    f"(risk={i.risk_estimate})"
+                )
+            lines.append(
+                "Suggestion: route auto-class issues through "
+                "implementer_loop.ImplementerLoop.run(apply=True, refine=True)."
+            )
+            return "\n".join(lines)
+        except Exception as exc:
+            _log.warning(f"ImplementationAgent implementer probe failed: {exc}")
+            return ""
+
     def analyze(self, query, code_context, peer_perceptions=None,
                 web_context="", round_num=1) -> Perception:
         t0 = time.time()
         peer_block = self._peer_block(peer_perceptions or [])
-        prompt = self._prompt(query, code_context, extra=peer_block)
+        if round_num == 1:
+            self._implementer_findings = self._scan_implementer_surface()
+        extra = peer_block + (self._implementer_findings or "")
+        prompt = self._prompt(query, code_context, extra=extra)
         text, ms = _ollama(_SYS["implementation"], prompt, self.model)
         findings, handoffs = _extract_handoffs(text)
         confidence = 0.80
@@ -1195,8 +1243,8 @@ class EnsembleOrchestrator:
                     perception=perception, packet=packet, message=msg,
                     result=result,
                 ))
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
         # ── Round 1: independent analysis ─────────────────────────────────────
         _emit(EventKind.ROUND_START, round_num=1,

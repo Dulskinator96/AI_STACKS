@@ -27,6 +27,8 @@ import ast
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+import logging
+_log = logging.getLogger(__name__)
 
 
 # ── Data model ─────────────────────────────────────────────────────────────────
@@ -139,8 +141,8 @@ def _parse_python(source: str) -> tuple[list[SymInfo], list[XRef]]:
             for b in node.bases:
                 try:
                     bases.append(ast.unparse(b))
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
             sig = f"class {node.name}"
             if bases:
                 sig += f"({', '.join(bases)})"

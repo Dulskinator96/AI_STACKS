@@ -11,6 +11,8 @@ import re
 import requests
 
 from config import USER_AGENT, WEB_TIMEOUT, DDGO_INSTANT_URL, DDGO_HTML_URL
+import logging
+_log = logging.getLogger(__name__)
 
 _MIN_TRUST = 0.35   # skip results below this trust score
 
@@ -38,8 +40,8 @@ def tool_web_search(query: str, n: str = "5", **_) -> str:
                 "url":     data.get("AbstractURL", ""),
                 "snippet": data["AbstractText"][:300],
             })
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f'caught exception: {e}')
 
     # HTML search fallback
     try:
@@ -60,8 +62,8 @@ def tool_web_search(query: str, n: str = "5", **_) -> str:
             snippet = re.sub(r"<[^>]+>", "", snippet).strip()
             if url and url not in {x["url"] for x in results}:
                 results.append({"title": title, "url": url, "snippet": snippet})
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f'caught exception: {e}')
 
     if not results:
         return f"No results found for: {query}"

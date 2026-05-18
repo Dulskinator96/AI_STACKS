@@ -22,6 +22,7 @@ import os
 import sys
 import ast
 import json
+import logging
 import re
 import subprocess
 import tempfile
@@ -32,6 +33,8 @@ import patch_engine
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+_log = logging.getLogger(__name__)
 
 from config import (
     OLLAMA_URL,
@@ -487,7 +490,7 @@ If you cannot find a specific section to replace, output OLD_CODE as empty and p
             )
             if result["ok"]:
                 return result["text"]
-            print(f"[CodeForge] {result['source']} error: {result['error']}", file=sys.stderr)
+            _log.debug(f"[CodeForge] {result['source']} error: {result['error']}")
         except Exception as exc:
             print(f"[CodeForge] Model error: {exc}", file=sys.stderr)
         return ""
@@ -649,6 +652,7 @@ class SandboxTester:
             result = subprocess.run(
                 [sys.executable, tmp_path],
                 capture_output=True, text=True, timeout=SANDBOX_TIMEOUT,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
             )
             ok = result.returncode == 0
             return {
@@ -1026,7 +1030,7 @@ class ConvProgrammingEngine:
             return True
 
         except Exception as exc:
-            print(f"[CodeForge] Apply failed: {exc}", file=sys.stderr)
+            _log.debug(f"[CodeForge] Apply failed: {exc}")
             return False
 
     def _ast_replace(self, source: str, old_code: str, new_code: str):

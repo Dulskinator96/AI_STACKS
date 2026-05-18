@@ -22,6 +22,8 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+import logging
+_log = logging.getLogger(__name__)
 
 SAVE_DIR     = Path.home() / "Documents" / "AI_Monitor"
 MATRIX_FILE  = SAVE_DIR / "strategy_matrix.json"
@@ -315,8 +317,8 @@ One task per line. No other text."""
                         score -= 20
                     elif days_left < 30:
                         score -= 10
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
 
             scored.append((score, g, next_t))
 
@@ -396,8 +398,8 @@ One task per line. No other text."""
                 data = {"goals": [g.to_dict() for g in self._goals],
                         "saved_at": datetime.utcnow().isoformat()}
             MATRIX_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     def _load(self):
         try:

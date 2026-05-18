@@ -27,6 +27,8 @@ import subprocess
 import argparse
 from datetime import datetime
 from pathlib import Path
+import logging
+_log = logging.getLogger(__name__)
 
 # ── Path bootstrap ─────────────────────────────────────────────────────────────
 _HERE     = Path(__file__).resolve().parent
@@ -41,14 +43,14 @@ try:
     PIPELINE_OK = True
 except Exception as exc:
     PIPELINE_OK = False
-    print(f"[Bridge] Pipeline unavailable — {exc}", file=sys.stderr)
+    _log.warning(f"[Bridge] Pipeline unavailable — {exc}")
 
 try:
     import perception as _perception
     PERCEPTION_OK = True
 except Exception as exc:
     PERCEPTION_OK = False
-    print(f"[Bridge] Perception unavailable — {exc}", file=sys.stderr)
+    _log.warning(f"[Bridge] Perception unavailable — {exc}")
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 GEMINI_CMD      = os.environ.get("GEMINI_CMD", "gemini")   # or full path
@@ -156,7 +158,7 @@ class GeminiBridge:
                     tags=["gemini", "exchange"],
                 )
             except Exception as exc:
-                print(f"[Bridge] perception.contribute — {exc}", file=sys.stderr)
+                _log.warning(f"[Bridge] perception.contribute — {exc}")
 
     def _route_session_end(self):
         """
@@ -192,7 +194,7 @@ class GeminiBridge:
                     parts.append("context.txt ✓")
                 print(f"[AI Monitor] {' · '.join(parts)}", flush=True)
             except Exception as exc:
-                print(f"[Bridge] pipeline.process — {exc}", file=sys.stderr)
+                _log.warning(f"[Bridge] pipeline.process — {exc}")
         elif PERCEPTION_OK:
             # Fallback: at least contribute the full summary to the ground
             _perception.contribute(
@@ -216,19 +218,19 @@ class GeminiBridge:
             sys.exit(1)
 
         # Print ground state summary before starting
-        print("\n" + "─" * 60)
-        print("  AI Monitor — Gemini CLI Bridge")
-        print("  Ground: WON + MemPalace + Obsidian")
-        print("─" * 60)
+        _log.debug("  AI Monitor — Gemini CLI Bridge")
+        _log.debug("  AI Monitor — Gemini CLI Bridge")
+        _log.debug("  Ground: WON + MemPalace + Obsidian")
+        _log.debug("─" * 60)
 
         if PERCEPTION_OK:
             state = _perception.get_ground_state(max_chars=400)
             if state:
-                print("\n[Ground State Preview]")
-                print(state[:400])
-                print()
+                _log.debug("\n[Ground State Preview]")
+                _log.debug(state[:400])
+                _log.debug()
 
-        print("[Bridge] Starting Gemini CLI…\n")
+        _log.debug("[Bridge] Starting Gemini CLI…\n")
 
         # Spawn gemini as subprocess with stdin/stdout pipes
         try:
@@ -240,6 +242,7 @@ class GeminiBridge:
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
             )
         except FileNotFoundError:
             # Try npx fallback
@@ -251,9 +254,10 @@ class GeminiBridge:
                     stderr=subprocess.STDOUT,
                     text=True,
                     bufsize=1,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
                 )
             except Exception as exc:
-                print(f"[Bridge] Failed to start Gemini CLI — {exc}", file=sys.stderr)
+                _log.warning(f"[Bridge] Failed to start Gemini CLI — {exc}")
                 sys.exit(1)
 
         self._running = True
@@ -284,7 +288,7 @@ class GeminiBridge:
                 self.proc.stdin.flush()
                 time.sleep(0.3)
             except Exception:
-                pass
+                _log.warning("swallowed exception")
 
         # Main I/O loop
         try:
@@ -309,7 +313,7 @@ class GeminiBridge:
                     for r in results[:5]:
                         src   = r.get("source_file", "?")
                         score = int(float(r.get("similarity", 0)) * 100)
-                        print(f"  [{score}%] {src}\n  {r.get('text','')[:200]}\n")
+                        _log.debug(f"  [{score}%] {src}\n  {r.get('text','')[:200]}\n")
                     continue
                 elif cmd_lower in ("/exit", "/quit"):
                     break
@@ -344,7 +348,7 @@ class GeminiBridge:
                     ).start()
 
         except Exception as exc:
-            print(f"\n[Bridge] Loop error — {exc}", file=sys.stderr)
+            _log.warning(f"\n[Bridge] Loop error — {exc}")
 
         finally:
             self._running = False
@@ -353,14 +357,14 @@ class GeminiBridge:
                     self.proc.stdin.write("/exit\n")
                     self.proc.stdin.flush()
                 except Exception:
-                    pass
+                    _log.warning("swallowed exception")
                 try:
                     self.proc.wait(timeout=3)
                 except Exception:
                     self.proc.kill()
 
             self._route_session_end()
-            print("\n[AI Monitor] Session closed. Ground updated.\n")
+            _log.debug("\n[AI Monitor] Session closed. Ground updated.\n")
 
 
 # ── CLI utilities ──────────────────────────────────────────────────────────────
@@ -368,25 +372,25 @@ class GeminiBridge:
 def cmd_peek():
     """Print current ground state and exit."""
     if not PERCEPTION_OK:
-        print("Perception layer offline — check WON_PATH and pipeline.py.")
+        _log.debug("Perception layer offline — check WON_PATH and pipeline.py.")
         return
-    print(_perception.get_ground_state(max_chars=2000))
+    _log.debug(_perception.get_ground_state(max_chars=2000))
 
 
 def cmd_search(query: str):
     """Search ground memory and print results."""
     if not PERCEPTION_OK:
-        print("Perception layer offline.")
+        _log.debug("Perception layer offline.")
         return
     results = _perception.search(query, limit=8)
     if not results:
-        print("No results found.")
+        _log.debug("No results found.")
         return
     for i, r in enumerate(results, 1):
         src   = r.get("source_file", r.get("source", "?"))
         score = int(float(r.get("similarity", 0)) * 100)
         text  = r.get("text", "")[:300].replace("\n", " ")
-        print(f"\n{i}. [{score}%] {src}\n   {text}")
+        _log.debug(f"\n{i}. [{score}%] {src}\n   {text}")
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

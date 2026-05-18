@@ -1,6 +1,112 @@
-build/
+# DBOMBLOCAL — .gitignore (updated 2026-05-17 for Phase A v3)
+
+# --- Built executables (too large for git; regenerable from source) ---
+*.exe
+DBOMBLOCAL.exe
 AIMonitor.exe
-AI Monitor.exe
-Open AI Monitor.lnk
+"AI Monitor.exe"
+
+# --- Build + dist artifacts ---
+build/
+dist/
+
+# --- Immutable release archives ---
+releases/
+
+# --- Telemetry + per-process data ---
+telemetry/
+*.jsonl
+
+# --- Python caches ---
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# --- PyInstaller temp unpack dirs ---
+_MEI*/
+
+# --- Logs ---
+*.log
+_bare_run*.log
+_v12_*.log
+_v13_*.log
+_install_loggers.log
+_audit_report.txt
+
+# --- Icon preview (only .ico is committed) ---
+AIBuild_icon_preview.png
+
+# --- Shortcuts (rebuilt by create_*_shortcut.ps1) ---
+*.lnk
+
+# --- Session/state files (managed in the parent claude memory hub) ---
+SESSION_LOG.md
+CURRENT.md
+
+# --- OS artifacts ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Editor / IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Crop / debug images ---
+_crop_*.png
+
+# --- WON-side runtime data inside this repo ---
+DBOMBCENTRAL_WON/DBOMBCENTRAL/won-data/
+
+# --- Kernel + trace state files (per-process) ---
+trace_log.json
+kernel_state.json
+agent_session.dat
+
+# --- Dev / debug helper scripts (kept in working copy, out of git) ---
+_apply_deterministic.py
+_audit.py
+_bare_*.py
+_build_emit_release.py
+_debug_*.py
+_decomp_inventory.py
+_det_*.py
+_final_check.py
+_install_loggers.py
+_live_*.py
+_pilot_*.py
+_smoke_*.py
+_tel_*.py
+_v12_*.py
+_v13_*.py
+_verify_*.py
+_run_*.py
+_run_*.ps1
+upgrade_contextual_patch.py
+emit_receipt.py
+recheck_detector.py
+
+# --- Implementer evidence/run artifacts ---
+_implementer_*.json
+_implementer_*.evidence.json
+_pilot_patch_*.evidence.json
+_last_*.txt
+_audit_report.txt
+build_log.txt
+
+# --- Verify screenshots and diagnostic PNGs ---
+_verify_*.png
+
+# --- SQLite databases (per-process state) ---
+*.db
+kernel.db
+
+# --- Cert + diagnostics PS1 helpers ---
+_run_cert.ps1
+_run_diagnostics*.ps1
+_verify_*.ps1

@@ -7,6 +7,8 @@ import os
 import requests
 import json
 from datetime import datetime
+import logging
+_log = logging.getLogger(__name__)
 
 _TS = lambda: datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 _DATE = lambda: datetime.utcnow().strftime("%Y-%m-%d")
@@ -30,7 +32,7 @@ class ObsidianWriter:
 
     def organize_vault(self):
         """Automatically organize the vault into logical hierarchies."""
-        print("[Obsidian] Running vault organization routine...")
+        _log.debug("[Obsidian] Running vault organization routine...")
         # Placeholder for more complex organization logic
         self._ensure_structure()
         return True
@@ -46,10 +48,10 @@ class ObsidianWriter:
             if os.path.exists(os.path.dirname(app_json)):
                 with open(app_json, "w", encoding="utf-8") as f:
                     json.dump(theme_config, f, indent=2)
-                print(f"[Obsidian] Theme configuration updated: {theme_config.get('theme')}")
+                _log.debug(f"[Obsidian] Theme configuration updated: {theme_config.get('theme')}")
                 return True
         except Exception as e:
-            print(f"[Obsidian] Failed to apply theme: {e}")
+            _log.debug(f"[Obsidian] Failed to apply theme: {e}")
         return False
 
     def _ensure_structure(self):
@@ -57,15 +59,15 @@ class ObsidianWriter:
         if not os.path.exists(self.vault_path):
             try:
                 os.makedirs(self.vault_path, exist_ok=True)
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
         for sub in ["Briefs", "Plans", "Projects", "Research", "Memory", "Sessions"]:
             path = os.path.join(self.vault_path, sub)
             if not os.path.exists(path):
                 try:
                     os.makedirs(path, exist_ok=True)
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
 
     def _write(self, rel_path: str, content: str):
         """Write note via Obsidian API, fallback to filesystem."""
@@ -83,12 +85,12 @@ class ObsidianWriter:
                 # verify=False because of self-signed certs common in local dev
                 resp = requests.put(url, data=content.encode("utf-8"), headers=headers, verify=False, timeout=5)
                 if resp.status_code in (200, 201, 204):
-                    print(f"[Obsidian] API write success: {rel_path}")
+                    _log.debug(f"[Obsidian] API write success: {rel_path}")
                     success = True
                 else:
-                    print(f"[Obsidian] API write failed ({resp.status_code}): {resp.text}")
+                    _log.debug(f"[Obsidian] API write failed ({resp.status_code}): {resp.text}")
             except Exception as e:
-                print(f"[Obsidian] API error: {e}")
+                _log.debug(f"[Obsidian] API error: {e}")
 
         # 2. Fallback to direct filesystem write
         if not success:
@@ -97,9 +99,9 @@ class ObsidianWriter:
                 os.makedirs(os.path.dirname(full), exist_ok=True)
                 with open(full, "w", encoding="utf-8") as f:
                     f.write(content)
-                print(f"[Obsidian] Filesystem write success: {full}")
+                _log.debug(f"[Obsidian] Filesystem write success: {full}")
             except Exception as e:
-                print(f"[Obsidian] Filesystem write error: {e}")
+                _log.debug(f"[Obsidian] Filesystem write error: {e}")
 
     # ── Project stub ───────────────────────────────────────────────────────
 

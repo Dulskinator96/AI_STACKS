@@ -20,6 +20,8 @@ from code_correlator import CodeCorrelator, CorrelationResult, get_correlator
 from executor import Executor, ExecutionResult
 from intent_engine import IntentResult, parse_intent
 from proposal_engine import Proposal, ProposalEngine, ProposalResult, get_engine
+import logging
+_log = logging.getLogger(__name__)
 
 
 # ── Pipeline event system ─────────────────────────────────────────────────────
@@ -107,8 +109,8 @@ class StratumPipeline:
         if cb:
             try:
                 cb(PipelineEvent(stage=stage, message=msg, data=data))
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
     def run_async(
         self,

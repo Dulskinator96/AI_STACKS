@@ -22,6 +22,8 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+import logging
+_log = logging.getLogger(__name__)
 
 SAVE_DIR     = Path.home() / "Documents" / "AI_Monitor"
 PROFILE_FILE = SAVE_DIR / "operator_profile.json"
@@ -243,8 +245,8 @@ class OperatorProfile:
             self.agent_scorecard = AgentScorecard(d.get("agent_scorecard", {}))
             self.response_prefs  = d.get("response_prefs", self.response_prefs)
             self.session_history = d.get("session_history", [])[-50:]
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     def _save(self):
         try:
@@ -260,8 +262,8 @@ class OperatorProfile:
                 "last_updated":    datetime.utcnow().isoformat(),
             }, indent=2, ensure_ascii=False), encoding="utf-8")
             tmp.replace(PROFILE_FILE)
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     # ── Session lifecycle ──────────────────────────────────────────────────────
 

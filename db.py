@@ -52,6 +52,8 @@ import os
 import threading
 from datetime import datetime
 from typing import Optional
+import logging
+_log = logging.getLogger(__name__)
 
 _client = None
 _client_lock = threading.Lock()
@@ -251,8 +253,8 @@ def _increment_hash(h: str):
             c.table("content_hashes").update(
                 {"count": res.data[0]["count"] + 1}
             ).eq("hash", h).execute()
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f'caught exception: {e}')
 
 
 def register_hash(h: str, source: str = ""):

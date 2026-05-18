@@ -4,9 +4,70 @@
 # All pipeline, WON, MemPalace, Obsidian, search, sync RESTORED.
 # ============================================================
 
-import sys, os, json, threading, time, difflib, struct, tempfile
+import sys, os, json, threading, time, struct, tempfile, logging
 from datetime import datetime
 from pathlib import Path
+
+# ── Boot profiler — must mark T0 BEFORE any heavy import work. ────────────────
+# Best-effort: if the package isn't on sys.path yet (frozen-exe edge case),
+# the profiler just silently no-ops and boot continues.
+try:
+    _SCRIPT_DIR = Path(__file__).resolve().parent
+    if str(_SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(_SCRIPT_DIR))
+    from core.profiler import get_profiler as _get_boot_profiler
+    from core.state_manager import (
+        get_state_manager as _get_state_mgr,
+        SystemState as _SystemState,
+    )
+    _get_boot_profiler().start()
+    # Guard: only transition BOOT → INIT if we're actually in BOOT. A second
+    # module reimport (e.g., PyInstaller hooks, sub-process spawn) must NOT
+    # re-trigger the INIT transition or it'll trip the state-machine edge
+    # check ("STARTING_AGENTS → INIT not in allowed set").
+    _state_mgr_init = _get_state_mgr()
+    if _state_mgr_init.current is _SystemState.BOOT:
+        _state_mgr_init.transition(_SystemState.INIT, reason="app.py module load")
+    # Boot self-heal: pre-flight checks + bounded auto-heals BEFORE heavy
+    # imports. Detects and repairs: missing data dirs, stale palace locks,
+    # corrupt JSON state files, comtypes cache state. Best-effort.
+    try:
+        from maintenance.boot_validator import run as _boot_preflight
+        _boot_preflight()
+    except Exception as _bv_exc:
+        logging.getLogger("stratum.bootstrap").debug(
+            "boot_validator unavailable: %s", _bv_exc,
+        )
+except Exception:
+    _get_boot_profiler = None
+    _get_state_mgr = None
+    _SystemState = None
+
+
+# ── STRATUM file logging (must run before any other logger setup) ─────────────
+_STRATUM_LOG_DIR = Path.home() / ".stratum"
+try:
+    _STRATUM_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _STRATUM_LOG_FILE = _STRATUM_LOG_DIR / "stratum.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(asctime)s] %(name)s %(levelname)s — %(message)s",
+        datefmt="%H:%M:%S",
+        handlers=[
+            logging.FileHandler(str(_STRATUM_LOG_FILE), encoding="utf-8"),
+            logging.StreamHandler(),
+        ],
+        force=True,
+    )
+    logging.getLogger("stratum.app").info(
+        "=== app.py boot — frozen=%s — log file: %s ===",
+        getattr(sys, "frozen", False), _STRATUM_LOG_FILE,
+    )
+except Exception as _log_exc:
+    # Never let logging setup prevent the app from starting.
+    # Use the root logger directly because the module-level `_log` is not
+    # bound yet at this point in module import.
+    logging.warning(f"[stratum] log setup failed: {_log_exc}")
 
 
 # ── Frozen-exe comtypes cache fix (Cursor) ─────────────────
@@ -34,17 +95,22 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSystemTrayIcon, QMenu,
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QTextEdit, QLineEdit,
-    QSplitter, QTabWidget, QProgressBar, QDialog,
-    QStatusBar,
+    QSplitter, QTabWidget, QProgressBar,
+    QStatusBar, QFileDialog, QSplashScreen,
 )
-from PyQt6.QtGui  import QIcon, QColor, QFont
+from PyQt6.QtGui  import QIcon, QColor, QFont, QPixmap, QPainter
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 
 import requests
+_log = logging.getLogger(__name__)
 
 # ── Optional integrations (graceful offline) ─────────────────
 DAVINCI_OK = False   # removed — not core to STRATUM purpose
 UNREAL_OK  = False   # removed — not core to STRATUM purpose
+QUANTUM_OK = False   # removed — not core to STRATUM purpose
+_dvr       = None    # DaVinci handle — references guarded by DAVINCI_OK
+_ue        = None    # Unreal handle  — references guarded by UNREAL_OK
+_quantum   = None    # Quantum handle — references guarded by QUANTUM_OK
 
 try:
     import validation_agent as _ah   # upgraded drop-in: 3-tier web validation
@@ -62,17 +128,61 @@ try:
 except Exception:
     MM_OK = False
 
-try:
-    import agent_protocol as _ap
-    AP_OK = True
-except Exception:
-    AP_OK = False
+# Lazy module-load wrappers — see _LazyImport / _LazyOK definitions below.
+# Imports for agent_protocol / conv_programming / synthesis are deferred to
+# first attribute access. Boot measurement (Phase A.2) showed these 3 modules
+# accounted for 3.1s of the 3.5s synchronous import waterfall at app.py top.
 
-try:
-    import conv_programming as _cp
-    CP_OK = True
-except Exception:
-    CP_OK = False
+class _LazyImport:
+    """Module proxy. Underlying import deferred until first attribute access
+    or bool() probe. Failed imports surface AttributeError at use site, never
+    at app.py module-load."""
+    __slots__ = ("_name", "_mod", "_attempted")
+    def __init__(self, name):
+        self._name = name
+        self._mod = None
+        self._attempted = False
+    def _ensure(self):
+        if not self._attempted:
+            self._attempted = True
+            try:
+                import importlib
+                self._mod = importlib.import_module(self._name)
+            except Exception as exc:
+                try:
+                    logging.getLogger("stratum.app").info(
+                        "lazy-import %s deferred-failed: %s", self._name, exc)
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
+                self._mod = None
+        return self._mod
+    def __getattr__(self, attr):
+        if attr.startswith("_"):
+            raise AttributeError(attr)
+        m = self._ensure()
+        if m is None:
+            raise AttributeError(
+                f"lazy module '{self._name}' is unavailable (import failed)"
+            )
+        return getattr(m, attr)
+    def __bool__(self):
+        return self._ensure() is not None
+
+
+class _LazyOK:
+    """Truth proxy bound to a _LazyImport. `if FOO_OK:` triggers the underlying
+    import probe exactly once. Preserves the existing call pattern."""
+    __slots__ = ("_lm",)
+    def __init__(self, lazy_mod): self._lm = lazy_mod
+    def __bool__(self): return bool(self._lm)
+    def __repr__(self): return "True" if bool(self) else "False"
+
+
+_ap = _LazyImport("agent_protocol")
+AP_OK = _LazyOK(_ap)
+
+_cp = _LazyImport("conv_programming")
+CP_OK = _LazyOK(_cp)
 
 try:
     import lm_studio as _lms
@@ -108,7 +218,6 @@ except Exception:
 try:
     import detcore as _detcore
     from config import (
-        DBombButton, DBombLexicon,
         WICK_DOCK_OFFSET_X, WICK_DOCK_OFFSET_Y, WICK_DOCK_WIDTH,
     )
     DETCORE_OK = True
@@ -135,11 +244,8 @@ try:
 except Exception:
     SENSORY_OK = False
 
-try:
-    import synthesis as _synth
-    SYNTH_OK = True
-except Exception:
-    SYNTH_OK = False
+_synth = _LazyImport("synthesis")
+SYNTH_OK = _LazyOK(_synth)
 
 try:
     import imageforge as _forge
@@ -181,8 +287,8 @@ class NativeBridge:
             sys.stdout.buffer.write(struct.pack("=I", len(encoded)))
             sys.stdout.buffer.write(encoded)
             sys.stdout.buffer.flush()
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
 
 # ── Path helpers (Cursor) ───────────────────────────────────
@@ -228,7 +334,7 @@ def show_fatal_startup_error(tb: str):
     try:
         import ctypes
         tail = tb[-1800:] if len(tb) > 1800 else tb
-        ctypes.windll.user32.MessageBoxW(0, f"Log: {STARTUP_LOG}\n\n{tail}", "AI Monitor – startup error", 0x10)
+        ctypes.windll.user32.MessageBoxW(0, f"Log: {STARTUP_LOG}\n\n{tail}", "DBOMBLOCAL – startup error", 0x10)
     except Exception: pass
 
 # ── Config ──────────────────────────────────────────────────
@@ -245,7 +351,7 @@ PROFILE_FILE = SAVE_DIR / "dan_profile.json"
 _DEFAULT_PROFILE = {
     "name":        "Dan",
     "full_name":   "Daniel Dulsky",
-    "projects":    ["DBOMBCENTRAL", "ACAS", "WON Agent", "AI Monitor"],
+    "projects":    ["DBOMBCENTRAL", "ACAS", "WON Agent", "DBOMBLOCAL"],
     "preferences": "Direct, dense, no filler. Treat me as a sophisticated operator.",
     "style":       "Distinguished chaperone — high class, precise, forward-vectored.",
     "goals":       "Build ACAS through 4 phases. Reduce token costs. Automate intelligence.",
@@ -256,8 +362,8 @@ def load_profile() -> dict:
     if PROFILE_FILE.exists():
         try:
             return json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
     PROFILE_FILE.parent.mkdir(parents=True, exist_ok=True)
     PROFILE_FILE.write_text(json.dumps(_DEFAULT_PROFILE, indent=2), encoding="utf-8")
     return dict(_DEFAULT_PROFILE)
@@ -283,8 +389,8 @@ def build_chaperone_prompt() -> str:
     if PROFILER_OK:
         try:
             profile_block = _profiler.get_profile().get_prompt_injection()
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     return f"""You are WON — STRATUM PRIME, the living intelligence core of DBOMB ASCENDENT.
 You are not a chatbot. You are a continuously operating autonomous mind
@@ -538,8 +644,8 @@ def get_daemon_status() -> dict:
     if DAEMON_STATE_FILE.exists():
         try:
             return json.loads(DAEMON_STATE_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
     return {}
 
 def get_daemon_notifications(unread_only: bool = True) -> list[dict]:
@@ -565,8 +671,8 @@ def mark_notifications_read():
         NOTIFY_FILE.write_text(
             json.dumps(notes, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f'caught exception: {e}')
 
 
 def ollama_available() -> bool:
@@ -629,8 +735,8 @@ class SelfModEngine:
             required = schema.split(",")
             if all(k in colors for k in required):
                 return colors
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
         return None
 
     @classmethod
@@ -688,8 +794,8 @@ class SelfModEngine:
                     "new_code":    new_m.group(1).strip(),
                     "risk_level":  risk_m.group(1).lower() if risk_m else "medium",
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
         return None
 
     @classmethod
@@ -737,20 +843,61 @@ class SelfModEngine:
 # ============================================================
 
 class HistoryDashboard(QMainWindow):
+    # Phase A v3: first-paint flag for the canonical "interactive" mark.
+    # paintEvent fires the mark exactly once — that's the user-perceived
+    # moment the window becomes visible. Replaces the on_ready() placement
+    # which was sensitive to processEvents() QTimer drainage timing.
+    _first_paint_marked = False
+
     def __init__(self, parent_app):
+        try:
+            from core.profiler import mark as _bm
+        except Exception:
+            _bm = lambda *_a, **_k: None
         super().__init__()
+        _bm("hd_super_init_done")
         self.parent_app = parent_app
-        self.setWindowTitle("AI Monitor — Command Hub")
+        self.setWindowTitle("DBOMBLOCAL — Command Hub")
         self.setMinimumSize(1050, 700)
         self.setStyleSheet(STYLE)
+        _bm("hd_stylesheet_applied")
 
         for d in [SANDBOX_DIR, PROPOSALS_DIR]:
             d.mkdir(parents=True, exist_ok=True)
 
         self._workers = []   # keep refs so threads aren't GC'd
         self._init_ui()
-        self.refresh_history()
+        _bm("hd_init_ui_done")
+        try:
+            from core.state_manager import transition_to as _ts, SystemState as _S
+            _bm("window_constructed")
+            _ts(_S.STARTING_AGENTS, reason="historydashboard_init_returned")
+        except Exception:
+            pass
+        # PHASE A: defer refresh_history (filesystem scan) until after first
+        # paint. Was previously synchronous here, costing boot time. Now it
+        # runs ~250ms into the event loop, AFTER the UI is interactive.
+        QTimer.singleShot(250, self.refresh_history)
         QTimer.singleShot(600, self._refresh_status)
+
+    # ── Paint event — fires the canonical "interactive" mark exactly once ──
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not HistoryDashboard._first_paint_marked:
+            HistoryDashboard._first_paint_marked = True
+            try:
+                from core.profiler import mark as _bm, get_profiler
+                from core.state_manager import transition_to as _ts, SystemState as _S
+                _bm("interactive", note="first_paint")
+                _ts(_S.READY, reason="first_paint")
+                # One-shot emit so the metric lands on disk immediately.
+                path = get_profiler().emit_report()
+                if path is not None:
+                    logging.getLogger("core.lifecycle").info(
+                        "boot profile emitted at first_paint → %s", path,
+                    )
+            except Exception:
+                pass
 
     # ── UI ──────────────────────────────────────────────────
 
@@ -789,21 +936,90 @@ class HistoryDashboard(QMainWindow):
         self.tabs = QTabWidget()
         root.addWidget(self.tabs)
 
-        self._build_memory_tab()
-        self._build_chat_tab()
-        self._build_ground_tab()
-        self._build_opt_tab()
-        self._build_guide_tab()
-        self._build_training_tab()
-        self._build_integrations_tab()
-        self._build_agent_tab()
-        self._build_convprog_tab()
-        self._build_pulse_tab()
-        self._build_synthesis_tab()
-        self._build_strategy_tab()
-        self._build_quantum_tab()
-        self._build_pyramid_compartment_tab()
-        self._build_simcore_tab()
+        # Repair bar — sits between tabs and status bar.
+        # Hidden by default; surfaces when DetectorEngine finds malfunctions.
+        # Contains: issue label · [Apply All] · [Details] · [Dismiss].
+        self.repair_bar = QWidget()
+        self.repair_bar.setStyleSheet(
+            "QWidget#repairBar { background:#1a1015; border-top:2px solid #c04868; }"
+            "QPushButton { background:#2a1820; color:#f0a030; border:1px solid #c04868; "
+            "  border-radius:3px; padding:4px 12px; font-weight:bold; font-size:11px; }"
+            "QPushButton:hover { background:#3a2030; color:#fff; }"
+        )
+        self.repair_bar.setObjectName("repairBar")
+        rb_lay = QHBoxLayout(self.repair_bar)
+        rb_lay.setContentsMargins(14, 6, 14, 6)
+        self._repair_lbl = QLabel("🔧  0 issues detected")
+        self._repair_lbl.setStyleSheet("color:#f0a030; font-weight:bold; font-size:12px;")
+        # Accessibility — exposes the live text to MSAA / UI Automation
+        # so external verification suites can read the repair-bar state.
+        self._repair_lbl.setAccessibleName("repair-bar-status")
+        self._repair_lbl.setAccessibleDescription(
+            "Repair detector status. Empty when 0 issues; shows count + kinds "
+            "when something is detected. Read via UI Automation Name property."
+        )
+        rb_lay.addWidget(self._repair_lbl, 1)
+        self._repair_apply_btn = QPushButton("Apply All")
+        self._repair_apply_btn.setToolTip(
+            "Route every detected malfunction through WON for an auto-repair patch. "
+            "Backs up originals to ~/.stratum/repair/<ts>/ before writing."
+        )
+        self._repair_apply_btn.clicked.connect(self._repair_apply_all)
+        rb_lay.addWidget(self._repair_apply_btn)
+        self._repair_details_btn = QPushButton("Details")
+        self._repair_details_btn.setToolTip("Show the full list of detected issues.")
+        self._repair_details_btn.clicked.connect(self._repair_show_details)
+        rb_lay.addWidget(self._repair_details_btn)
+        self._repair_dismiss_btn = QPushButton("Dismiss")
+        self._repair_dismiss_btn.setToolTip("Hide this bar until next detection cycle.")
+        self._repair_dismiss_btn.clicked.connect(self._repair_dismiss)
+        rb_lay.addWidget(self._repair_dismiss_btn)
+        self.repair_bar.hide()
+        root.addWidget(self.repair_bar)
+
+        self._repair_issues: list[dict] = []
+        self._repair_timer = QTimer(self)
+        self._repair_timer.timeout.connect(self._repair_detect)
+        self._repair_timer.start(30000)   # every 30s — lightweight check
+        QTimer.singleShot(4000, self._repair_detect)
+
+        # Layer 3 — Tab body construction is staggered via QTimer so the
+        # window appears immediately (Layer 2 done) and tabs populate in
+        # waves of ~40ms. Pre-warm import thread runs in parallel (Layer 1),
+        # so heavy module imports are cached by the time their tab builds.
+        self._lazy_loaded: set[str] = set()
+        self._lazy_builders: list[tuple[str, callable]] = [
+            # Order matters: build cheap/critical tabs first so they're
+            # interactive ASAP. Heavy ones (Palace, Pyramid, SimCore) trail.
+            ("Memory & Recall",  self._build_memory_tab),
+            ("Chat",             self._build_chat_tab),
+            ("Ground",           self._build_ground_tab),
+            ("Opt",              self._build_opt_tab),
+            ("Guide",            self._build_guide_tab),
+            ("Training",         self._build_training_tab),
+            ("Integrations",     self._build_integrations_tab),
+            ("Agent",            self._build_agent_tab),
+            ("ConvProg",         self._build_convprog_tab),
+            ("Pulse",            self._build_pulse_tab),
+            ("Synthesis",        self._build_synthesis_tab),
+            ("Strategy",         self._build_strategy_tab),
+            ("Quantum",          self._build_quantum_tab),
+            ("PyramidCompartment", self._build_pyramid_compartment_tab),
+            ("SimCore",          self._build_simcore_tab),
+            ("Lab",              self._build_lab_tab),
+            ("DNA",              self._build_dna_tab),
+            ("Palace",           self._build_mempalace_tab),
+            ("Diagnostics",      self._build_diagnostics_tab),
+            ("Maintenance",      self._build_maintenance_tab),
+            ("Portal",           self._build_portal_tab),
+            ("Manifest",         self._build_manifest_tab),
+        ]
+        self._lazy_total = len(self._lazy_builders)
+        self._lazy_done  = 0
+        # Stagger each builder so the event loop ticks between constructions
+        # — keeps the UI responsive while tabs assemble.
+        for i, (name, fn) in enumerate(self._lazy_builders):
+            QTimer.singleShot(40 * (i + 1), lambda n=name, f=fn: self._run_lazy_builder(n, f))
 
         # Status bar
         self.status = QStatusBar()
@@ -814,6 +1030,36 @@ class HistoryDashboard(QMainWindow):
         self.progress.setFixedWidth(160)
         self.progress.hide()
         self.status.addPermanentWidget(self.progress)
+
+    # ── Layer 3: staggered tab body construction ────────────────────────────
+    def _run_lazy_builder(self, name: str, fn):
+        """Execute one tab-body builder. Runs on the main thread but is
+        scheduled via QTimer so the event loop yields between tabs. Errors
+        are logged but never propagate — one failed tab can't kill the boot.
+        """
+        if name in self._lazy_loaded:
+            return
+        try:
+            if hasattr(self, "status") and self.status:
+                self.status.showMessage(f"Loading {name}…  ({self._lazy_done + 1}/{self._lazy_total})")
+            fn()
+            self._lazy_loaded.add(name)
+            self._lazy_done += 1
+            if self._lazy_done >= self._lazy_total:
+                if hasattr(self, "status") and self.status:
+                    self.status.showMessage(f"All {self._lazy_total} rooms loaded ✓")
+                # Signal AIMonitorApp that Layer 3 is complete — splash can close
+                app = getattr(self.parent_app, "app", None)
+                if app is not None:
+                    try:
+                        QTimer.singleShot(0, lambda: self.parent_app._on_rooms_loaded())
+                    except Exception as e:
+                        _log.warning(f'caught exception: {e}')
+        except Exception as exc:
+            logging.getLogger("stratum.app").exception(
+                "tab builder failed: %s — %s", name, exc
+            )
+            self._lazy_done += 1
 
     def _open_pyramid(self):
         try:
@@ -1080,15 +1326,15 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
             try:
                 ctx = " ".join(e["text"][:100] for e in self._chat_log[-3:])
                 _quantum.observe(text, ctx)
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
         # ── Harvester: capture input as potential context ──────
         if HARVEST_OK:
             try:
                 _harvest.capture(text, source="chat_input")
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
         self.chat_display.append(f'\n<b style="color:#58a6ff;">You:</b> {text}\n')
         self._chat_log.append({"role": "user", "text": text})
@@ -1133,8 +1379,8 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
                         quality = "high" if grounded.get("confidence", 0) > 0.7 else "standard"
                         return {"response": grounded["response"], "quality": quality,
                                 "confidence": grounded.get("confidence")}
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
 
             # Fallback: standard LM Studio / Ollama call
             response = self._ollama_call(prompt)
@@ -1196,7 +1442,7 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
                 for e in log
             )
             return wp.process({
-                "platform":     "AI Monitor Chat",
+                "platform":     "DBOMBLOCAL Chat",
                 "summary":      summary,
                 "messageCount": len(log),
             })
@@ -1222,7 +1468,7 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
         lay.setContentsMargins(12, 12, 12, 12)
 
         info = QLabel(
-            "SHARED GROUND  —  AI Monitor is a living memory both Claude and Gemini CLI read from and write to."
+            "SHARED GROUND  —  DBOMBLOCAL is a living memory both Claude and Gemini CLI read from and write to."
         )
         info.setStyleSheet("color:#8b949e; padding-bottom:8px;")
         lay.addWidget(info)
@@ -1336,7 +1582,7 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
             "border-radius:4px; padding:10px; color:#c9d1d9; font-size:13px;"
         )
         self.guide_chat.setPlaceholderText(
-            "Ask WON anything about AI Monitor…\n\n"
+            "Ask WON anything about DBOMBLOCAL…\n\n"
             "Examples:\n"
             "  • What does the Portal do?\n"
             "  • How do I save to Obsidian?\n"
@@ -1360,7 +1606,7 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
         # Ask input
         ask_row = QHBoxLayout()
         self.guide_input = QLineEdit()
-        self.guide_input.setPlaceholderText("Ask WON about AI Monitor… (Enter)")
+        self.guide_input.setPlaceholderText("Ask WON about DBOMBLOCAL… (Enter)")
         self.guide_input.returnPressed.connect(
             lambda: self._guide_ask(self.guide_input.text())
         )
@@ -1398,7 +1644,7 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
 via the extension. Use this to give Claude or Gemini instant context from your last session.</p>
 
 <h3>Hub</h3>
-<p>Opens the main AI Monitor Command Hub window. All tabs live here: Memory, Chat, Ground, Optimization, Guide.</p>
+<p>Opens the main DBOMBLOCAL Command Hub window. All tabs live here: Memory, Chat, Ground, Optimization, Guide.</p>
 
 <h3>Portal</h3>
 <p>Opens the Portal — a live two-entity window. Left side: memory feed, ground state, Obsidian notes.
@@ -2124,8 +2370,17 @@ Question: {question}"""
         os.environ["ANTHROPIC_API_KEY"] = key
         # Persist to user environment permanently
         import subprocess
-        subprocess.run(["setx", "ANTHROPIC_API_KEY", key], capture_output=True)
-        self.status.showMessage("API key saved to user environment ✓")
+        try:
+            subprocess.run(
+                ["setx", "ANTHROPIC_API_KEY", key],
+                capture_output=True,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+                timeout=8,
+            )
+            self.status.showMessage("API key saved to user environment ✓")
+        except Exception as exc:
+            logging.getLogger("stratum.app").exception("setx ANTHROPIC_API_KEY failed")
+            self.status.showMessage(f"Saved to session only — setx failed: {exc}")
 
     def _agent_test_connection(self):
         if not AP_OK:
@@ -2264,8 +2519,12 @@ Question: {question}"""
     def _agent_save_session(self):
         loop = self._get_agent_loop()
         if not loop or not AP_OK: return
-        path = _ap.save_session(loop)
-        self.status.showMessage(f"Session saved → {Path(path).name}")
+        try:
+            path = _ap.save_session(loop)
+            self.status.showMessage(f"Session saved → {Path(path).name}")
+        except Exception as exc:
+            logging.getLogger("stratum.app").exception("agent save_session failed")
+            self.status.showMessage(f"Save failed: {exc}")
 
     def _build_training_tab(self):
         """Training Program — Dan teaches WON who he is."""
@@ -2363,7 +2622,7 @@ Question: {question}"""
         CHAPERONE_PROMPT = build_chaperone_prompt()
         name = profile.get("name", "Dan")
         self.training_status.setText(f"✓ Saved — WON knows you as {name}")
-        self.setWindowTitle(f"AI Monitor — Command Hub  ·  {name}")
+        self.setWindowTitle(f"DBOMBLOCAL — Command Hub  ·  {name}")
         self.training_response.setPlainText("⟳ WON processing your profile…")
         prompt = (
             f"{CHAPERONE_PROMPT}\n\n"
@@ -2390,7 +2649,12 @@ Question: {question}"""
             f"Be distinguished. Address them by name."
         )
         def intro(): return self._ollama_call(prompt, timeout=120)
-        def done(r): self.training_response.setPlainText(r)
+        def done(r):
+            # Worker emits {"error": str} on exception — render gracefully
+            if isinstance(r, dict) and "error" in r:
+                self.training_response.setPlainText(f"[introduction failed: {r['error']}]")
+            else:
+                self.training_response.setPlainText(str(r))
         self._run_in_thread(intro, on_done=done)
 
 
@@ -2782,8 +3046,8 @@ Question: {question}"""
                 self.badge.setStyleSheet("color:#58a6ff; font-weight:bold;")
                 QTimer.singleShot(5000, lambda: self.badge.setStyleSheet(
                     "color:#3fb950; font-weight:bold;"))
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     # ─────────────────────────────────────────────────────────────────────────
     # PULSE TAB — Live STRATUM Terminal
@@ -2868,8 +3132,8 @@ Question: {question}"""
                 _pulse.stop()
                 self._pulse_status_lbl.setText("● STOPPED")
                 self._pulse_status_lbl.setStyleSheet("color:#f85149; font-size:11px;")
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
     def _pulse_clear(self):
         if hasattr(self, "pulse_terminal"):
@@ -3064,7 +3328,7 @@ Question: {question}"""
     def _synth_forge_display_spec(self, spec: dict):
         self._synth_log_msg("RENDERER OFFLINE — Returning Generation Spec", "#f0883e")
         self.synth_log.append("<div style='border:1px solid #30363d; padding:10px; margin:5px; background:#161b22;'>")
-        self.synth_log.append(f"<b style='color:#58a6ff;'>IMAGE_GENERATION_SPEC</b><br>")
+        self.synth_log.append("<b style='color:#58a6ff;'>IMAGE_GENERATION_SPEC</b><br>")
         self.synth_log.append(f"<b style='color:#8b949e;'>IMAGE_PROMPT:</b> {spec.get('IMAGE_PROMPT')}<br>")
         self.synth_log.append(f"<b style='color:#8b949e;'>STYLE:</b> {spec.get('STYLE')}<br>")
         self.synth_log.append(f"<b style='color:#8b949e;'>COMPOSITION:</b> {spec.get('COMPOSITION')}<br>")
@@ -3098,8 +3362,8 @@ Question: {question}"""
                 self._synth_refresh_status()
                 try:
                     os.startfile(p)
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
             elif res.get("status") == "prompt_fallback":
                 self._synth_forge_display_spec(res.get("spec", {}))
             else:
@@ -3533,8 +3797,8 @@ Question: {question}"""
                         f"Entangled with '{top_intent}': " +
                         "  |  ".join(f"{t} ({c}×)" for t, c in related)
                     )
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     def _build_pyramid_compartment_tab(self):
         """PYRAMID — cognitive OS coordinator (5 Rooms + IntentRouter + MemoryCore).
@@ -3724,6 +3988,378 @@ Question: {question}"""
         )
         self._py_output.setPlainText(body)
         self._py_status.setText(f"{len(rows)} tasks recalled")
+
+    def _build_lab_tab(self):
+        """🧪 LAB — analysis station + sandbox + portfolio.
+
+        Dan's room for studying code/files, running real sandbox executions
+        via pyramid_compartment.SandboxRoom, and building a portfolio of
+        WON-generated artifacts (Analyze/Brief/Summarize/Document/Recap).
+        Every action persists to ~/.stratum/lab/portfolio/<date>/<slug>/.
+        """
+        lab = LabWidget(self.parent_app)
+        self.tabs.addTab(lab, "🧪 Lab")
+
+    def _build_dna_tab(self):
+        """🧬 FILE DNA — per-file signature panel (size/sha/lines/AST)."""
+        self._dna_tab = DNAPanel(self.parent_app)
+        self.tabs.addTab(self._dna_tab, "🧬 DNA")
+
+    def _build_mempalace_tab(self):
+        """🏛 MEM PALACE — semantic vector recall + autonomous MemoryAgent."""
+        self._mempalace_tab = MemPalacePanel(self.parent_app)
+        self.tabs.addTab(self._mempalace_tab, "🏛 Palace")
+
+    def _build_diagnostics_tab(self):
+        """🩺 DIAGNOSTICS — Reality Enforcement self-test."""
+        self._diagnostics_tab = DiagnosticsPanel(self.parent_app)
+        self.tabs.addTab(self._diagnostics_tab, "🩺 Diagnostics")
+
+    def _build_maintenance_tab(self):
+        """🛡 MAINTENANCE — bounded autonomous stability & repair via Cortex.
+
+        Single centralized MaintenanceCortex owns the coordinator, runtime,
+        observers, stability engine, and repair history analyzer.
+        Daemon thread; dies with the process.
+        """
+        from maintenance import MaintenanceCortex, CortexConfig
+        from maintenance.observers import UIStateAgent
+        from ui.maintenance_panel import MaintenancePanel
+
+        self._maint_ui_state = UIStateAgent()
+        self._maint_cortex = MaintenanceCortex.build_default(
+            ui_state_agent=self._maint_ui_state,
+            config=CortexConfig(tick_seconds=5.0),
+        )
+        self._maintenance_tab = MaintenancePanel(
+            self._maint_cortex.coordinator, self._maint_cortex.runtime, self,
+        )
+        self.tabs.addTab(self._maintenance_tab, "🛡 Maintenance")
+        self._maint_cortex.start()
+
+    # ── Repair bar ──────────────────────────────────────────────────────────
+    # Detector runs every 30s. Two passes for now:
+    #  (1) tail ~/.stratum/stratum.log for ERROR/CRITICAL within last 5 min
+    #  (2) AST-parse each .py file in project root; surface SyntaxError sites
+    # Apply All routes each finding through WON for a patch suggestion;
+    # original files are copied to ~/.stratum/repair/<ts>/ before any write.
+
+    def _repair_detect(self):
+        try:
+            issues = self._collect_issues()
+        except Exception as exc:
+            logging.getLogger("stratum.app").exception("repair detect failed: %s", exc)
+            return
+        self._repair_issues = issues
+        if not issues:
+            self.repair_bar.hide()
+            return
+        n = len(issues)
+        kinds = sorted(set(i.get("kind", "?") for i in issues))
+        self._repair_lbl.setText(
+            f"🔧  {n} issue{'s' if n != 1 else ''} detected  ·  " + " · ".join(kinds)
+        )
+        self.repair_bar.show()
+
+    def _collect_issues(self) -> list[dict]:
+        out: list[dict] = []
+        root = Path(getattr(self.parent_app, "root", "."))
+
+        # (1) Log errors
+        log_path = Path.home() / ".stratum" / "stratum.log"
+        if log_path.is_file():
+            try:
+                cutoff = datetime.now().timestamp() - 300
+                with log_path.open("r", encoding="utf-8", errors="replace") as fh:
+                    for ln in fh.readlines()[-400:]:
+                        if "ERROR" in ln or "CRITICAL" in ln:
+                            # Crude timestamp filter — first 19 chars are ISO-ish
+                            stamp = ln[:19]
+                            try:
+                                t = datetime.fromisoformat(stamp.replace(",", ".")).timestamp()
+                            except Exception:
+                                t = cutoff
+                            if t >= cutoff:
+                                out.append({
+                                    "kind":   "log-error",
+                                    "where":  "stratum.log",
+                                    "line":   ln.rstrip()[:240],
+                                })
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
+
+        # (2) Syntax errors in project .py files — INCREMENTAL via mtime cache.
+        # Measured cost on this project (Domain 2 evidence): full re-parse of
+        # 79 .py files = 574ms · runs every 30s on the MAIN THREAD pre-fix.
+        # With mtime skip, steady-state cost drops to glob+stat only (~50ms),
+        # and only files whose mtime moved get re-parsed. Failed parses are
+        # re-tested every cycle so an active syntax error keeps surfacing.
+        import ast as _ast
+        if not hasattr(self, "_repair_ast_cache"):
+            self._repair_ast_cache: dict[str, tuple[float, bool]] = {}
+        cache = self._repair_ast_cache
+        for f in list(root.rglob("*.py"))[:200]:
+            parts = set(f.parts)
+            if parts & {"__pycache__", "build", "dist", ".venv", "venv"}:
+                continue
+            try:
+                mtime = f.stat().st_mtime
+            except Exception:
+                continue
+            key = str(f)
+            prev = cache.get(key)
+            # Skip if mtime unchanged AND last parse was clean.
+            # If last parse failed, always re-test so an active syntax error
+            # keeps re-surfacing in the bar (its fix may not be live yet).
+            if prev and prev[0] == mtime and prev[1] is True:
+                continue
+            try:
+                src = f.read_text(encoding="utf-8-sig", errors="replace")
+                _ast.parse(src, filename=key)
+                cache[key] = (mtime, True)
+            except SyntaxError as exc:
+                cache[key] = (mtime, False)
+                out.append({
+                    "kind":  "syntax",
+                    "where": key,
+                    "line":  exc.lineno or 0,
+                    "msg":   exc.msg,
+                    "text":  (exc.text or "").rstrip(),
+                })
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
+
+        # (3) WON daemon analysis notifications (unread) — each carries an
+        # "ANALYSIS: ... → Fix: ..." body. Surface them so Apply All can
+        # route them through WON for actual code edits.
+        try:
+            notes = get_daemon_notifications(unread_only=True)
+            for idx, n in enumerate(notes):
+                body = n.get("body", "") or ""
+                # Extract "→ Fix:" portion if present
+                fix = ""
+                for marker in ("→ Fix:", "-> Fix:", "Fix:"):
+                    if marker in body:
+                        fix = body.split(marker, 1)[1].strip()[:600]
+                        break
+                out.append({
+                    "kind":     "won-analysis",
+                    "title":    n.get("title", "WON analysis"),
+                    "body":     body[:1200],
+                    "fix":      fix,
+                    "priority": n.get("priority", "normal"),
+                    "ts":       n.get("ts", ""),
+                    "note_idx": idx,
+                })
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
+
+        return out
+
+    def _repair_dismiss(self):
+        self.repair_bar.hide()
+
+    def _repair_show_details(self):
+        if not self._repair_issues:
+            return
+        lines = [f"🔧  REPAIR — {len(self._repair_issues)} issue(s) detected", ""]
+        for i, issue in enumerate(self._repair_issues, 1):
+            k = issue.get("kind", "?")
+            if k == "syntax":
+                lines.append(f"{i}. [SYNTAX]  {issue['where']}  L{issue['line']}: {issue['msg']}")
+                if issue.get("text"):
+                    lines.append(f"    > {issue['text']}")
+            elif k == "log-error":
+                lines.append(f"{i}. [LOG]  {issue['line']}")
+            elif k == "won-analysis":
+                pri = issue.get("priority", "normal").upper()
+                lines.append(f"{i}. [WON·{pri}]  {issue['title']}")
+                if issue.get("fix"):
+                    lines.append(f"    Fix: {issue['fix'][:300]}")
+                else:
+                    lines.append(f"    {issue['body'][:300]}")
+            else:
+                lines.append(f"{i}. [{k}]  {issue}")
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.information(self, "Repair — Details", "\n".join(lines))
+
+    def _repair_apply_all(self):
+        if not self._repair_issues:
+            return
+        self._repair_apply_btn.setEnabled(False)
+        self._repair_apply_btn.setText("Repairing…")
+        from PyQt6.QtWidgets import QMessageBox
+
+        syntax_issues = [i for i in self._repair_issues if i.get("kind") == "syntax"]
+        won_issues    = [i for i in self._repair_issues if i.get("kind") == "won-analysis"]
+
+        # WON analyses route to a separate apply path — they're advisory, not
+        # raw syntax errors. Dispatch them in a worker, then mark notifications
+        # read so they stop re-surfacing every detection cycle.
+        if won_issues:
+            self._apply_won_analyses(won_issues)
+
+        if not syntax_issues:
+            if not won_issues:
+                QMessageBox.information(
+                    self, "Repair",
+                    "No auto-fixable issues. Log errors require manual review."
+                )
+            self._repair_apply_btn.setEnabled(True)
+            self._repair_apply_btn.setText("Apply All")
+            return
+
+        # Backup dir
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_dir = Path.home() / ".stratum" / "repair" / ts
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        logging.getLogger("stratum.app").info(
+            "Apply All — %d syntax issues, backup dir %s", len(syntax_issues), backup_dir
+        )
+
+        try:
+            from won_daemon import ollama_think as _think
+        except Exception as exc:
+            QMessageBox.warning(self, "Repair", f"WON unavailable: {exc}")
+            self._repair_apply_btn.setEnabled(True)
+            self._repair_apply_btn.setText("Apply All")
+            return
+
+        def work():
+            results = []
+            for issue in syntax_issues:
+                target = Path(issue["where"])
+                try:
+                    raw = target.read_text(encoding="utf-8-sig", errors="replace")
+                except Exception as exc:
+                    results.append({"file": str(target), "ok": False, "err": str(exc)})
+                    continue
+                # Backup
+                try:
+                    (backup_dir / target.name).write_text(raw, encoding="utf-8")
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
+                prompt = (
+                    f"You are repairing a Python SyntaxError. Return ONLY the corrected full "
+                    f"file content. No prose, no fences, no commentary.\n\n"
+                    f"FILE: {target.name}\n"
+                    f"LINE: {issue['line']}\n"
+                    f"ERROR: {issue['msg']}\n\n"
+                    f"--- SOURCE ---\n{raw}\n--- END ---\n"
+                )
+                try:
+                    fixed = _think(prompt, max_tokens=4096, timeout=180)
+                except Exception as exc:
+                    results.append({"file": str(target), "ok": False, "err": str(exc)})
+                    continue
+                if not isinstance(fixed, str) or len(fixed) < 50:
+                    results.append({"file": str(target), "ok": False, "err": "empty response"})
+                    continue
+                # Strip code fences if WON added them
+                if fixed.lstrip().startswith("```"):
+                    fixed = fixed.split("```", 2)[-1]
+                    if fixed.startswith("python"):
+                        fixed = fixed[len("python"):]
+                    if fixed.rstrip().endswith("```"):
+                        fixed = fixed.rstrip()[:-3]
+                # Validate via AST before write
+                try:
+                    import ast as _ast
+                    _ast.parse(fixed)
+                except SyntaxError as exc:
+                    results.append({"file": str(target), "ok": False,
+                                    "err": f"WON output still invalid: {exc}"})
+                    continue
+                try:
+                    target.write_text(fixed, encoding="utf-8")
+                    results.append({"file": str(target), "ok": True})
+                except Exception as exc:
+                    results.append({"file": str(target), "ok": False, "err": str(exc)})
+            return results
+
+        def done(results):
+            self._repair_apply_btn.setEnabled(True)
+            self._repair_apply_btn.setText("Apply All")
+            if not isinstance(results, list):
+                QMessageBox.warning(self, "Repair", f"Repair worker failed: {results}")
+                return
+            ok = sum(1 for r in results if r.get("ok"))
+            fail = len(results) - ok
+            msg = [f"Repair complete — {ok} succeeded, {fail} failed.",
+                   f"Backups → {backup_dir}", ""]
+            for r in results:
+                tag = "✓" if r.get("ok") else "✗"
+                msg.append(f"{tag} {r['file']}  {r.get('err', '')}")
+            QMessageBox.information(self, "Repair — Apply All", "\n".join(msg))
+            QTimer.singleShot(500, self._repair_detect)
+
+        self._run_in_thread(work, on_done=done)
+
+    def _apply_won_analyses(self, issues: list[dict]):
+        """Surface WON analysis notifications and offer to apply WON's fix.
+
+        Each WON note carries an analysis + recommended Fix. We:
+          1. Persist a record of the proposed apply to ~/.stratum/repair/won/<ts>/
+          2. Mark the notifications as read (so they stop re-surfacing)
+          3. Show a summary dialog with the analyses + fixes.
+
+        Code-edits ARE NOT auto-applied here — applying an architectural
+        recommendation (e.g. "use async for API calls") requires WON to
+        author a concrete patch. That path is wired but gated behind a
+        per-issue Review/Confirm flow to keep the user in the loop.
+        """
+        from PyQt6.QtWidgets import QMessageBox
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        out_dir = Path.home() / ".stratum" / "repair" / "won" / ts
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
+
+        # Persist the snapshot of analyses being applied
+        try:
+            (out_dir / "analyses.json").write_text(
+                json.dumps(issues, indent=2, default=str), encoding="utf-8"
+            )
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
+
+        # Build a digest for the user
+        lines = [
+            f"WON ANALYSIS APPLY — {len(issues)} notification(s) acknowledged.",
+            f"Snapshot → {out_dir}",
+            "",
+            "Each item below has been recorded and marked read. WON's recommended",
+            "fixes are advisory; concrete code edits require Review per item from",
+            "the daemon panel.",
+            "",
+        ]
+        for i, n in enumerate(issues, 1):
+            pri = n.get("priority", "normal").upper()
+            lines.append(f"{i}. [WON·{pri}]  {n['title']}")
+            if n.get("fix"):
+                lines.append(f"   → {n['fix'][:280]}")
+            lines.append("")
+
+        # Mark notifications read so they stop re-surfacing
+        try:
+            mark_notifications_read()
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
+
+        QMessageBox.information(self, "WON Analysis — Apply", "\n".join(lines))
+        QTimer.singleShot(500, self._repair_detect)
+
+    def _build_portal_tab(self):
+        """📡 PORTAL — compact live view (was: standalone PortalWindow)."""
+        self._portal_tab = PortalWindow(self.parent_app)
+        self._portal_tab_index = self.tabs.addTab(self._portal_tab, "📡 Portal")
+
+    def _build_manifest_tab(self):
+        """◈ MANIFEST — full AI visibility (was: standalone ManifestWindow)."""
+        theme = getattr(self, "_theme", THEMES.get("Dark", {}))
+        self._manifest_tab = ManifestWindow(self.parent_app, theme)
+        self._manifest_tab_index = self.tabs.addTab(self._manifest_tab, "◈ Manifest")
 
     def _build_simcore_tab(self):
         """SIMCORE — deterministic cognitive simulation.
@@ -4023,8 +4659,8 @@ Question: {question}"""
                             lms_str = f" · LMStudio ✓ {lms_status.get('active_model','')[:20]}"
                         else:
                             lms_str = " · LMStudio ✗"
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _log.warning(f'caught exception: {e}')
 
                 self.status.showMessage(
                     f"WON: {s.get('total_entries', 0)} entries · "
@@ -4038,22 +4674,41 @@ Question: {question}"""
         self.status.showMessage(f"Pipeline offline — set WON_PATH env var{daemon_str}")
 
     def _run_in_thread(self, fn, *args, on_done=None):
+        # GC finished workers BEFORE checking the cap — keeps the list tight
+        # against the worker leak that surfaced under UI-automation load.
+        self._workers = [w for w in self._workers if w.isRunning()]
+        # Backpressure: if more than 8 are mid-flight, drop the new request.
+        # Better to skip an action than queue 50 chromadb searches at once.
+        if len(self._workers) > 8:
+            logging.getLogger("stratum.app").warning(
+                "Worker backpressure: %d running, dropping new task %r",
+                len(self._workers), getattr(fn, "__name__", fn),
+            )
+            return None
         w = Worker(fn, *args)
         if on_done:
             w.result.connect(on_done)
         w.finished.connect(lambda: self._workers.remove(w) if w in self._workers else None)
         self._workers.append(w)
         w.start()
+        return w
 
     # ── Memory tab actions ───────────────────────────────────
 
     def refresh_history(self):
-        self.list_w.clear()
+        # Layer-3 lazy load: list_w is created by _build_memory_tab which
+        # runs via QTimer. If we're called before that fires (during
+        # __init__), skip — _build_memory_tab will re-run refresh after
+        # creating list_w. Same guard for any other widget-dependent attrs.
+        lw = getattr(self, "list_w", None)
+        if lw is None:
+            return
+        lw.clear()
         if not HISTORY_DIR.is_dir(): return
         for p in sorted(HISTORY_DIR.glob("*.txt"), key=lambda x: x.stat().st_mtime, reverse=True):
             it = QListWidgetItem(f"📄  {p.name}")
             it.setData(Qt.ItemDataRole.UserRole, str(p))
-            self.list_w.addItem(it)
+            lw.addItem(it)
 
     def load_won_memory_feed(self):
         wp = get_won_pipeline()
@@ -4129,8 +4784,8 @@ Question: {question}"""
                         _nb.build_history_note(sid, data["platform"], data["summary"], 0, ts_str)
                         _nb.build_brief_note(sid, data["platform"], data["summary"], 0, ts_str)
                         result["note_builder_used"] = True
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _log.warning(f'caught exception: {e}')
                 return result
             def done(r):
                 self._busy(False)
@@ -4378,7 +5033,18 @@ def _build_theme_style(t: dict) -> str:
 # MANIFEST WINDOW — Full visual of all AI activity
 # ============================================================
 
-class ManifestWindow(QMainWindow):
+class _StatusShim:
+    """Adapts a QLabel into the QStatusBar.showMessage interface."""
+    def __init__(self, label):
+        self._lbl = label
+    def showMessage(self, msg, _timeout=0):
+        try:
+            self._lbl.setText(msg)
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
+
+
+class ManifestWindow(QWidget):
     """
     The Manifest pops Claude into the room with full visibility:
     - Live chat history from all sources
@@ -4387,6 +5053,9 @@ class ManifestWindow(QMainWindow):
     - Recent Obsidian notes preview
     - Direct two-way chat with WON
     Everything is visible. Everything is logged. WON knows it.
+
+    Embedded as a tab in HistoryDashboard; also still usable as a top-level
+    window via .show() (QWidget with a window title is a valid free-floating window).
     """
 
     def __init__(self, parent_app, theme: dict):
@@ -4397,8 +5066,8 @@ class ManifestWindow(QMainWindow):
         self._chat_log    = []
         self._timer       = QTimer()
         self._timer.timeout.connect(self._refresh_all)
-        self.setWindowTitle("AI Monitor — MANIFEST")
-        self.setMinimumSize(1200, 780)
+        self.setWindowTitle("DBOMBLOCAL — MANIFEST")
+        self.setMinimumSize(900, 600)
         self._apply_theme(theme)
         self._init_ui()
         self._timer.start(6000)
@@ -4406,15 +5075,24 @@ class ManifestWindow(QMainWindow):
 
     def _apply_theme(self, t: dict):
         self._theme = t
-        self.setStyleSheet(_build_theme_style(t) + f"""
-            QMainWindow {{
-                border: 3px solid {t['accent']};
-            }}
-        """)
+        self.setStyleSheet(_build_theme_style(t))
 
     def closeEvent(self, ev):
         self._timer.stop()
         super().closeEvent(ev)
+
+    def hideEvent(self, ev):
+        # Slow refresh when tab not visible
+        try:
+            if self._timer.isActive(): self._timer.setInterval(30000)
+        except Exception: pass
+        super().hideEvent(ev)
+
+    def showEvent(self, ev):
+        try:
+            if self._timer.isActive(): self._timer.setInterval(6000)
+        except Exception: pass
+        super().showEvent(ev)
 
     def _run_bg(self, fn, *args, on_done=None):
         w = Worker(fn, *args)
@@ -4425,9 +5103,7 @@ class ManifestWindow(QMainWindow):
 
     def _init_ui(self):
         t   = self._theme
-        cen = QWidget()
-        self.setCentralWidget(cen)
-        root = QVBoxLayout(cen)
+        root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
@@ -4535,9 +5211,14 @@ class ManifestWindow(QMainWindow):
         cols.setStretchFactor(2, 2)
         root.addWidget(cols, stretch=1)
 
-        self.status = QStatusBar()
-        self.setStatusBar(self.status)
-        self.status.showMessage("Manifest active — WON has full visibility")
+        # Status strip — QLabel adapted to QStatusBar.showMessage interface
+        self._status_lbl = QLabel("Manifest active — WON has full visibility")
+        self._status_lbl.setStyleSheet(
+            f"background:{t['bg2']}; color:{t['text2']}; "
+            f"padding:4px 10px; border-top:1px solid {t['border']}; font-size:11px;"
+        )
+        root.addWidget(self._status_lbl)
+        self.status = _StatusShim(self._status_lbl)
 
         # Welcome message
         self.chat_view.append(
@@ -4731,7 +5412,7 @@ End with: → Next Action:"""
         )
         def save():
             return wp.process({
-                "platform": "AI Monitor Manifest",
+                "platform": "DBOMBLOCAL Manifest",
                 "summary":  summary,
                 "messageCount": len(log),
             })
@@ -4748,10 +5429,13 @@ End with: → Next Action:"""
 # PORTAL WINDOW — Floating live window + theme engine
 # ============================================================
 
-class PortalWindow(QMainWindow):
+class PortalWindow(QWidget):
     """
-    Compact always-on-top portal: live memory, ground state, notes, chat.
-    Full theme engine. Manifest button opens the ManifestWindow.
+    Compact portal: live memory, ground state, notes, chat. Full theme engine.
+    Manifest button focuses the embedded Manifest tab.
+
+    Embedded as a tab in HistoryDashboard; still usable as a standalone window
+    via .show() when constructed in a popout context.
     """
 
     def __init__(self, parent_app):
@@ -4764,8 +5448,8 @@ class PortalWindow(QMainWindow):
         self._theme        = THEMES["Dark"]
         self._timer        = QTimer()
         self._timer.timeout.connect(self._auto_refresh)
-        self.setWindowTitle("AI Monitor — Portal")
-        self.setMinimumSize(920, 680)
+        self.setWindowTitle("DBOMBLOCAL — Portal")
+        self.setMinimumSize(820, 600)
         self._apply_theme()
         self._init_ui()
         self._timer.start(8000)
@@ -4773,14 +5457,26 @@ class PortalWindow(QMainWindow):
 
     def _apply_theme(self):
         t = self._theme
-        self.setStyleSheet(_build_theme_style(t) + f"""
-            QMainWindow {{ border: 2px solid {t['border']}; }}
-        """)
+        self.setStyleSheet(_build_theme_style(t))
 
     def closeEvent(self, ev):
         self._timer.stop()
-        if self._manifest_win: self._manifest_win.close()
+        if self._manifest_win:
+            try: self._manifest_win.close()
+            except Exception: pass
         super().closeEvent(ev)
+
+    def hideEvent(self, ev):
+        try:
+            if self._timer.isActive(): self._timer.setInterval(30000)
+        except Exception: pass
+        super().hideEvent(ev)
+
+    def showEvent(self, ev):
+        try:
+            if self._timer.isActive(): self._timer.setInterval(8000)
+        except Exception: pass
+        super().showEvent(ev)
 
     def _run_in_thread(self, fn, *args, on_done=None):
         w = Worker(fn, *args)
@@ -4791,9 +5487,7 @@ class PortalWindow(QMainWindow):
 
     def _init_ui(self):
         t   = self._theme
-        cen = QWidget()
-        self.setCentralWidget(cen)
-        root = QVBoxLayout(cen)
+        root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
 
         # Header
@@ -4975,9 +5669,14 @@ class PortalWindow(QMainWindow):
         split.setStretchFactor(1, 2)
         root.addWidget(split)
 
-        self.status = QStatusBar()
-        self.setStatusBar(self.status)
-        self.status.showMessage("Portal active — auto-refresh 8s · click Manifest for full view")
+        # Status strip — QLabel adapted to QStatusBar.showMessage interface
+        self._status_lbl = QLabel("Portal active — auto-refresh 8s · click Manifest for full view")
+        self._status_lbl.setStyleSheet(
+            f"background:{t['bg2']}; color:{t['text2']}; "
+            f"padding:4px 10px; border-top:1px solid {t['border']}; font-size:11px;"
+        )
+        root.addWidget(self._status_lbl)
+        self.status = _StatusShim(self._status_lbl)
 
     # ── Theme ────────────────────────────────────────────────
 
@@ -5314,11 +6013,1573 @@ Respond as a distinguished intelligence chaperone. You are fully visible. Guide 
     # ── Manifest ─────────────────────────────────────────────
 
     def _open_manifest(self):
+        # Manifest is now an embedded tab — focus it instead of spawning a window
+        dash = getattr(self.parent_app, "dashboard", None)
+        if dash is not None and getattr(dash, "_manifest_tab", None) is not None:
+            try:
+                dash.tabs.setCurrentWidget(dash._manifest_tab)
+                dash.raise_()
+                dash.activateWindow()
+                return
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
+        # Fallback: original popout behavior if dashboard not reachable
         if self._manifest_win is None or not self._manifest_win.isVisible():
             self._manifest_win = ManifestWindow(self.parent_app, self._theme)
         self._manifest_win.show()
         self._manifest_win.raise_()
         self._manifest_win.activateWindow()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# LAB TAB — Dan's analysis & portfolio room
+# ═════════════════════════════════════════════════════════════════════════════
+# Intake (file / paste) → Analyze / Run / Brief / Summarize / Document / Recap.
+# Every action is real: Analyze/Brief/Summarize/Document/Recap route through
+# won_daemon.ollama_think; Run executes via pyramid_compartment.SandboxRoom.
+# Every action persists to ~/.stratum/lab/portfolio/<YYYY-MM-DD>/<slug>/ and
+# emits stratum.lab log lines. No simulated execution (AIOF-1.0).
+# ═════════════════════════════════════════════════════════════════════════════
+
+class LabWidget(QWidget):
+    """Dan's Lab — file/code analysis, sandboxed run, portfolio-building."""
+
+    LAB_PROMPTS = {
+        "analyze": (
+            "You are a senior software architect. Analyse the following code/file "
+            "and return:\n"
+            "1. Role in the system (1 sentence).\n"
+            "2. Design patterns detected with confidence (e.g. Repository 85%, Observer 70%).\n"
+            "3. Antipatterns detected with confidence (e.g. Magic Strings 65%).\n"
+            "4. Integration hooks — what other modules it likely talks to.\n"
+            "5. Concrete improvement opportunities (3 max, ranked).\n\n"
+            "File / code:\n{ctx}"
+        ),
+        "brief": (
+            "Write a tight engineering brief (≤ 250 words) covering: what this "
+            "code does, why it matters, and the single most important thing a "
+            "reader should remember.\n\nContent:\n{ctx}"
+        ),
+        "summarize": (
+            "Summarize the following in exactly 3 bullets. Each bullet ≤ 20 words. "
+            "Lead with the most important point.\n\nContent:\n{ctx}"
+        ),
+        "document": (
+            "Produce a formal markdown documentation block for the following code. "
+            "Include: # Title, ## Purpose, ## Inputs, ## Outputs, ## Side Effects, "
+            "## Examples, ## Failure Modes.\n\nCode:\n{ctx}"
+        ),
+        "recap": (
+            "Recap the following recent lab activity in 5 bullets — what was "
+            "studied, what was decided, what is unresolved. Professional tone.\n\n"
+            "Activity:\n{ctx}"
+        ),
+    }
+
+    action_complete = pyqtSignal(str, str)  # (action_name, output_text)
+
+    def __init__(self, parent_app, parent=None):
+        super().__init__(parent)
+        self.parent_app = parent_app
+        self._current_path = None
+        self._current_slug = None
+        self._experiment_n = 0
+        self._notebook_entries = []  # in-session journal
+        self._pulse_state = False
+        self._busy_action = None
+        self.setAcceptDrops(True)
+        self.setStyleSheet(
+            "LabWidget { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+            "stop:0 #06091c, stop:1 #0a0f28); }"
+        )
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(8)
+
+        # ── Lab station header (atmosphere + live state) ────────────────────
+        station = QHBoxLayout()
+        title = QLabel("🧪  LAB  ·  STRATUM ANALYSIS STATION")
+        title.setStyleSheet(
+            "color:#58a6ff; font-weight:bold; font-size:14px;"
+            " letter-spacing:1px;"
+        )
+        station.addWidget(title)
+        station.addSpacing(16)
+
+        self._status_led = QLabel("●")
+        self._status_led.setStyleSheet("color:#3fb950; font-size:14px;")
+        self._status_led.setToolTip("Lab state — green = idle, blue pulse = working")
+        station.addWidget(self._status_led)
+        self._status_text = QLabel("IDLE")
+        self._status_text.setStyleSheet(
+            "color:#3fb950; font-weight:bold; font-size:11px; letter-spacing:1px;"
+        )
+        station.addWidget(self._status_text)
+
+        station.addStretch(1)
+
+        self._exp_label = QLabel("EXP #0")
+        self._exp_label.setStyleSheet(
+            "color:#f0a030; font-weight:bold; font-size:11px;"
+            " letter-spacing:1px;"
+        )
+        self._exp_label.setToolTip("Experiments fired this session")
+        station.addWidget(self._exp_label)
+        station.addSpacing(12)
+
+        self._clock_label = QLabel("--:--:--")
+        self._clock_label.setStyleSheet(
+            "color:#8b949e; font-family:Consolas, 'Courier New', monospace;"
+            " font-size:11px;"
+        )
+        station.addWidget(self._clock_label)
+        root.addLayout(station)
+
+        # Live clock + status pulse — gives the room its heartbeat
+        self._heartbeat = QTimer(self)
+        self._heartbeat.timeout.connect(self._on_heartbeat)
+        self._heartbeat.start(800)
+
+        # ── Specimen / hypothesis row ───────────────────────────────────────
+        spec = QHBoxLayout()
+        spec_lbl = QLabel("Specimen:")
+        spec_lbl.setStyleSheet("color:#8b949e; font-size:11px;")
+        spec.addWidget(spec_lbl)
+        self._path_label = QLabel("(none — paste, browse, or drop a file)")
+        self._path_label.setStyleSheet(
+            "color:#c9d1d9; font-size:11px;"
+            " background:#0d1117; border:1px solid #30363d;"
+            " border-radius:3px; padding:3px 8px;"
+        )
+        spec.addWidget(self._path_label, 1)
+
+        browse_btn = QPushButton("Browse…")
+        browse_btn.clicked.connect(self._browse_file)
+        spec.addWidget(browse_btn)
+        clear_btn = QPushButton("Clear")
+        clear_btn.clicked.connect(self._clear_input)
+        spec.addWidget(clear_btn)
+        root.addLayout(spec)
+
+        hyp = QHBoxLayout()
+        hyp_lbl = QLabel("Hypothesis:")
+        hyp_lbl.setStyleSheet("color:#8b949e; font-size:11px;")
+        hyp.addWidget(hyp_lbl)
+        self._hypothesis = QLineEdit()
+        self._hypothesis.setPlaceholderText(
+            "What do you expect to learn or verify? (optional; saved with every action)"
+        )
+        self._hypothesis.setStyleSheet(
+            "background:#0d1117; color:#c9d1d9; border:1px solid #30363d;"
+            " border-radius:3px; padding:3px 6px; font-size:11px;"
+        )
+        hyp.addWidget(self._hypothesis, 1)
+        root.addLayout(hyp)
+
+        # ── Splitter: viewer | output ──────────────────────────────────────
+        split = QSplitter(Qt.Orientation.Horizontal)
+
+        self._viewer = QTextEdit()
+        self._viewer.setPlaceholderText(
+            "Paste code / text here, drop a file on this panel, or use Browse."
+        )
+        self._viewer.setStyleSheet(
+            "background:#0d1117; color:#c9d1d9; border:1px solid #30363d;"
+            " border-radius:4px; font-family:Consolas, 'Courier New', monospace;"
+            " font-size:11px;"
+        )
+        split.addWidget(self._viewer)
+
+        self._output = QTextEdit()
+        self._output.setReadOnly(True)
+        self._output.setPlaceholderText("Action output appears here.")
+        self._output.setStyleSheet(
+            "background:#161b22; color:#c9d1d9; border:1px solid #30363d;"
+            " border-radius:4px; font-size:11px; padding:4px;"
+        )
+        split.addWidget(self._output)
+        split.setSizes([520, 520])
+        root.addWidget(split, 1)
+
+        # ── Action row ─────────────────────────────────────────────────────
+        actions = QHBoxLayout()
+        self._action_buttons = []
+        action_defs = [
+            ("Analyze",   "analyze",   self._fire_analyze,
+             "Detect role, design patterns + antipatterns, integration hooks (WON)."),
+            ("Run",       "run",       self._fire_run,
+             "Sandbox-execute. Prefix with 'python:' or 'shell:' in the viewer."),
+            ("Brief",     "brief",     lambda: self._fire_llm("brief"),
+             "Engineering brief — ≤ 250 words (WON)."),
+            ("Summarize", "summarize", lambda: self._fire_llm("summarize"),
+             "3-bullet summary (WON). Also copied to clipboard."),
+            ("Document",  "document",  lambda: self._fire_llm("document"),
+             "Formal markdown documentation block (WON)."),
+            ("Recap",     "recap",     self._fire_recap,
+             "Session recap from recent portfolio entries (WON)."),
+            ("Save",      "save",      self._fire_save,
+             "Snapshot current input + output into the portfolio folder."),
+        ]
+        for label, key, slot, tip in action_defs:
+            b = QPushButton(label)
+            b.setToolTip(tip)
+            style = (
+                "QPushButton{background:#1f6feb; color:#fff; font-weight:bold;"
+                " border:1px solid #1f6feb; border-radius:4px; padding:6px 12px;"
+                " font-size:11px;}"
+                "QPushButton:hover{background:#388bfd;}"
+                "QPushButton:disabled{background:#21262d; color:#6e7681;}"
+            )
+            if key == "run":
+                style = style.replace("#1f6feb", "#18b896")
+            elif key == "save":
+                style = style.replace("#1f6feb", "#f0a030")
+            b.setStyleSheet(style)
+            b.clicked.connect(slot)
+            actions.addWidget(b)
+            self._action_buttons.append((key, b))
+        root.addLayout(actions)
+
+        # ── Bottom panel: notebook journal | portfolio strip ────────────────
+        bottom_split = QSplitter(Qt.Orientation.Horizontal)
+
+        notebook_box = QWidget()
+        nb_lay = QVBoxLayout(notebook_box)
+        nb_lay.setContentsMargins(0, 0, 0, 0)
+        nb_lay.setSpacing(2)
+        nb_header = QLabel("📓  Lab Notebook (this session)")
+        nb_header.setStyleSheet(
+            "color:#18b896; font-weight:bold; font-size:11px; letter-spacing:1px;"
+        )
+        nb_lay.addWidget(nb_header)
+        self._notebook = QListWidget()
+        self._notebook.setMaximumHeight(110)
+        self._notebook.setStyleSheet(
+            "background:#0d1117; color:#c9d1d9; border:1px solid #18b896;"
+            " border-radius:4px; font-size:11px;"
+            " font-family:Consolas, 'Courier New', monospace;"
+        )
+        nb_lay.addWidget(self._notebook)
+        bottom_split.addWidget(notebook_box)
+
+        portfolio_box = QWidget()
+        pf_lay = QVBoxLayout(portfolio_box)
+        pf_lay.setContentsMargins(0, 0, 0, 0)
+        pf_lay.setSpacing(2)
+        pf_header_row = QHBoxLayout()
+        pf_header = QLabel("📂  Portfolio (persisted)")
+        pf_header.setStyleSheet(
+            "color:#f0a030; font-weight:bold; font-size:11px; letter-spacing:1px;"
+        )
+        pf_header_row.addWidget(pf_header, 1)
+        refresh_p = QPushButton("↻")
+        refresh_p.setFixedWidth(24)
+        refresh_p.setFixedHeight(18)
+        refresh_p.setToolTip("Refresh portfolio")
+        refresh_p.clicked.connect(self._refresh_portfolio)
+        pf_header_row.addWidget(refresh_p)
+        pf_lay.addLayout(pf_header_row)
+        self._portfolio_list = QListWidget()
+        self._portfolio_list.setMaximumHeight(110)
+        self._portfolio_list.setStyleSheet(
+            "background:#0d1117; color:#c9d1d9; border:1px solid #f0a030;"
+            " border-radius:4px; font-size:11px;"
+        )
+        self._portfolio_list.itemDoubleClicked.connect(self._load_portfolio_entry)
+        pf_lay.addWidget(self._portfolio_list)
+        bottom_split.addWidget(portfolio_box)
+
+        bottom_split.setSizes([520, 520])
+        root.addWidget(bottom_split)
+
+        # Signal wiring + initial scans
+        self.action_complete.connect(self._on_action_complete,
+                                     Qt.ConnectionType.QueuedConnection)
+        self._refresh_portfolio()
+        self._journal("LAB online — analysis station ready.")
+
+    # ── Drag & drop ─────────────────────────────────────────────────────────
+    def dragEnterEvent(self, ev):
+        if ev.mimeData().hasUrls():
+            ev.acceptProposedAction()
+
+    def dropEvent(self, ev):
+        urls = ev.mimeData().urls()
+        if urls:
+            path = urls[0].toLocalFile()
+            if path:
+                self._load_file(path)
+
+    # ── Intake ─────────────────────────────────────────────────────────────
+    def _browse_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Select a file for the Lab")
+        if path:
+            self._load_file(path)
+
+    def _load_file(self, path: str):
+        try:
+            text = Path(path).read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            self._output.setPlainText(f"[lab] read failed: {exc}")
+            return
+        self._viewer.setPlainText(text)
+        self._current_path = path
+        self._path_label.setText(f"📄 {Path(path).name}")
+        logging.getLogger("stratum.lab").info("loaded file: %s (%d chars)",
+                                              path, len(text))
+
+    def _clear_input(self):
+        self._viewer.clear()
+        self._output.clear()
+        self._current_path = None
+        self._current_slug = None
+        self._path_label.setText("(no file — paste below or drop one here)")
+
+    def _ctx(self) -> str:
+        return (self._viewer.toPlainText() or "").strip()
+
+    # ── LLM actions (Analyze / Brief / Summarize / Document) ───────────────
+    def _fire_analyze(self):
+        self._fire_llm("analyze")
+
+    def _fire_llm(self, action: str):
+        ctx = self._ctx()
+        if not ctx:
+            self._output.setPlainText("[lab] viewer is empty.")
+            return
+        if not WD_OK:
+            self._output.setPlainText("[lab] WON not available.")
+            return
+        template = self.LAB_PROMPTS.get(action)
+        if not template:
+            return
+        prompt = template.format(ctx=ctx[:6000])
+        _log = logging.getLogger("stratum.lab")
+        _log.info("action requested: %s (input_chars=%d)", action, len(ctx))
+        self._output.setPlainText(f"[{action}] working…")
+        self._start_busy(action)
+
+        def worker():
+            try:
+                result = _wd.ollama_think(prompt, max_tokens=900, timeout=120)
+            except Exception as exc:
+                result = f"[WON error: {exc}]"
+            out = (result or "").strip() or "[WON returned no output]"
+            try:
+                self._persist_action(action, ctx, out)
+                if action == "summarize":
+                    QApplication.clipboard().setText(out)
+                _log.info("action complete: %s, output_chars=%d", action, len(out))
+            except Exception as exc:
+                _log.warning("persist failed for %s: %s", action, exc)
+            self.action_complete.emit(action, out)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ── Run (sandbox) ──────────────────────────────────────────────────────
+    def _fire_run(self):
+        ctx = self._ctx()
+        if not ctx:
+            self._output.setPlainText("[lab] viewer is empty.")
+            return
+        if not (ctx.startswith("python:") or ctx.startswith("shell:")):
+            self._output.setPlainText(
+                "[lab] Run requires the input to start with 'python:' or "
+                "'shell:'. Prefix your code and try again."
+            )
+            return
+        _log = logging.getLogger("stratum.lab")
+        _log.info("run requested (%d chars)", len(ctx))
+        self._output.setPlainText("[run] executing in sandbox…")
+        self._start_busy("run")
+
+        def worker():
+            try:
+                from pyramid_compartment import SandboxRoom, Task
+                task = Task(
+                    task_id=f"lab_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                    input_text=ctx,
+                )
+                sandbox = SandboxRoom(timeout=30)
+                result_task = sandbox.enter(task)
+                out = result_task.output or "[sandbox returned no output]"
+            except Exception as exc:
+                out = f"[sandbox error: {exc}]"
+            try:
+                self._persist_action("run", ctx, out)
+                _log.info("run complete, output_chars=%d", len(out))
+            except Exception as exc:
+                _log.warning("persist failed for run: %s", exc)
+            self.action_complete.emit("run", out)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ── Recap (uses recent portfolio entries) ──────────────────────────────
+    def _fire_recap(self):
+        if not WD_OK:
+            self._output.setPlainText("[lab] WON not available.")
+            return
+        recent = self._recent_portfolio_text(limit=6)
+        if not recent.strip():
+            self._output.setPlainText(
+                "[lab] no portfolio entries yet — Save some actions first."
+            )
+            return
+        prompt = self.LAB_PROMPTS["recap"].format(ctx=recent[:6000])
+        _log = logging.getLogger("stratum.lab")
+        _log.info("recap requested (%d chars)", len(recent))
+        self._output.setPlainText("[recap] working…")
+        self._start_busy("recap")
+
+        def worker():
+            try:
+                result = _wd.ollama_think(prompt, max_tokens=600, timeout=120)
+            except Exception as exc:
+                result = f"[WON error: {exc}]"
+            out = (result or "").strip() or "[WON returned no output]"
+            try:
+                self._persist_action("recap", recent[:1000], out)
+            except Exception as exc:
+                _log.warning("persist failed for recap: %s", exc)
+            self.action_complete.emit("recap", out)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ── Save (manual snapshot of current state) ─────────────────────────────
+    def _fire_save(self):
+        ctx = self._ctx()
+        out = self._output.toPlainText().strip()
+        if not ctx and not out:
+            self._output.setPlainText("[lab] nothing to save.")
+            return
+        try:
+            slug_dir = self._persist_action("save", ctx, out or "(no output yet)")
+            self._output.setPlainText(f"[save] snapshot → {slug_dir}")
+            logging.getLogger("stratum.lab").info("manual save → %s", slug_dir)
+        except Exception as exc:
+            self._output.setPlainText(f"[save] failed: {exc}")
+
+    # ── Persistence ────────────────────────────────────────────────────────
+    def _persist_action(self, action: str, input_text: str, output_text: str) -> Path:
+        """Write the action artifact + master jsonl entry. Returns slug dir."""
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        slug_base = (self._current_slug
+                     or (Path(self._current_path).stem if self._current_path else "")
+                     or "session")
+        slug = f"{ts}__{self._sanitize(slug_base)[:30]}"
+        if self._current_slug is None:
+            self._current_slug = slug
+        else:
+            slug = self._current_slug
+
+        lab_root = Path.home() / ".stratum" / "lab" / "portfolio"
+        date_dir = lab_root / datetime.now().strftime("%Y-%m-%d")
+        slug_dir = date_dir / slug
+        slug_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save source on first action only (don't overwrite if Save came later)
+        source_file = slug_dir / "source.txt"
+        if not source_file.exists():
+            source_file.write_text(input_text or "", encoding="utf-8")
+
+        # Action-specific artifact
+        artifact = slug_dir / f"{action}.md"
+        artifact.write_text(
+            f"# {action.upper()} — {ts}\n\n"
+            f"## Source preview\n\n```\n{(input_text or '')[:500]}\n```\n\n"
+            f"## Output\n\n{output_text}\n",
+            encoding="utf-8",
+        )
+
+        # Master append-only log
+        master = Path.home() / ".stratum" / "lab" / "lab_actions.jsonl"
+        master.parent.mkdir(parents=True, exist_ok=True)
+        with master.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "ts":            datetime.now().isoformat(),
+                "action":        action,
+                "slug":          slug,
+                "source_path":   self._current_path,
+                "input_chars":   len(input_text or ""),
+                "output_chars":  len(output_text or ""),
+                "artifact":      str(artifact),
+            }) + "\n")
+
+        # meta.json (latest summary of the slug)
+        meta_file = slug_dir / "meta.json"
+        meta = {}
+        if meta_file.exists():
+            try:
+                meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            except Exception:
+                meta = {}
+        meta.setdefault("created", datetime.now().isoformat())
+        meta["last_action"] = action
+        meta["last_ts"] = datetime.now().isoformat()
+        meta.setdefault("source_path", self._current_path)
+        hypothesis = self._hypothesis.text().strip()
+        if hypothesis:
+            hyp_log = meta.setdefault("hypotheses", [])
+            hyp_log.append({"ts": datetime.now().isoformat(),
+                            "action": action,
+                            "text": hypothesis})
+        actions_list = meta.setdefault("actions", [])
+        if action not in actions_list:
+            actions_list.append(action)
+        meta_file.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+        return slug_dir
+
+    @staticmethod
+    def _sanitize(s: str) -> str:
+        keep = "-_.() "
+        return "".join(c if c.isalnum() or c in keep else "_" for c in s).strip("_ ")
+
+    # ── Portfolio sidebar ──────────────────────────────────────────────────
+    def _refresh_portfolio(self):
+        self._portfolio_list.clear()
+        port = Path.home() / ".stratum" / "lab" / "portfolio"
+        if not port.exists():
+            return
+        entries = []
+        for date_dir in sorted(port.iterdir(), reverse=True):
+            if not date_dir.is_dir():
+                continue
+            for slug_dir in sorted(date_dir.iterdir(), reverse=True):
+                if slug_dir.is_dir():
+                    entries.append(slug_dir)
+                    if len(entries) >= 20:
+                        break
+            if len(entries) >= 20:
+                break
+        for slug_dir in entries:
+            item = QListWidgetItem(f"{slug_dir.parent.name}  ·  {slug_dir.name}")
+            item.setData(Qt.ItemDataRole.UserRole, str(slug_dir))
+            self._portfolio_list.addItem(item)
+
+    def _load_portfolio_entry(self, item: QListWidgetItem):
+        slug_dir = Path(item.data(Qt.ItemDataRole.UserRole))
+        src = slug_dir / "source.txt"
+        if src.exists():
+            self._viewer.setPlainText(src.read_text(encoding="utf-8", errors="replace"))
+        # Show whichever output is freshest
+        latest_action_file = None
+        latest_mtime = 0.0
+        for f in slug_dir.glob("*.md"):
+            m = f.stat().st_mtime
+            if m > latest_mtime:
+                latest_mtime = m
+                latest_action_file = f
+        if latest_action_file:
+            self._output.setPlainText(latest_action_file.read_text(
+                encoding="utf-8", errors="replace"))
+        self._current_slug = slug_dir.name
+        self._path_label.setText(f"📁 {slug_dir.parent.name} / {slug_dir.name}")
+        logging.getLogger("stratum.lab").info("loaded portfolio entry: %s", slug_dir)
+
+    def _recent_portfolio_text(self, limit: int = 6) -> str:
+        """Concatenate the recap-input text from the N most recent portfolio entries."""
+        port = Path.home() / ".stratum" / "lab" / "portfolio"
+        if not port.exists():
+            return ""
+        chunks = []
+        for date_dir in sorted(port.iterdir(), reverse=True):
+            if not date_dir.is_dir():
+                continue
+            for slug_dir in sorted(date_dir.iterdir(), reverse=True):
+                if not slug_dir.is_dir():
+                    continue
+                meta_file = slug_dir / "meta.json"
+                meta = {}
+                if meta_file.exists():
+                    try:
+                        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                    except Exception as e:
+                        _log.warning(f'caught exception: {e}')
+                last_action = meta.get("last_action", "?")
+                latest_md = sorted(slug_dir.glob("*.md"),
+                                   key=lambda p: p.stat().st_mtime, reverse=True)
+                snippet = ""
+                if latest_md:
+                    txt = latest_md[0].read_text(encoding="utf-8", errors="replace")
+                    snippet = txt[:400]
+                chunks.append(
+                    f"--- {slug_dir.parent.name}/{slug_dir.name} "
+                    f"(last={last_action}) ---\n{snippet}"
+                )
+                if len(chunks) >= limit:
+                    return "\n\n".join(chunks)
+        return "\n\n".join(chunks)
+
+    # ── Action-complete signal handler (UI thread) ─────────────────────────
+    def _on_action_complete(self, action: str, text: str):
+        self._output.setPlainText(f"=== {action.upper()} ===\n\n{text}")
+        self._refresh_portfolio()
+        self._end_busy(action, success=not text.startswith("[WON error"))
+        self._journal(f"✓ {action.upper()} → {len(text)} chars")
+
+    # ── Atmosphere: heartbeat, status LED, journal, experiment counter ─────
+    def _on_heartbeat(self):
+        self._clock_label.setText(datetime.now().strftime("%H:%M:%S"))
+        if self._busy_action:
+            self._pulse_state = not self._pulse_state
+            col = "#1f6feb" if self._pulse_state else "#388bfd"
+            self._status_led.setStyleSheet(f"color:{col}; font-size:14px;")
+            self._status_text.setStyleSheet(
+                f"color:{col}; font-weight:bold; font-size:11px; letter-spacing:1px;"
+            )
+
+    def _start_busy(self, action: str):
+        self._experiment_n += 1
+        self._exp_label.setText(f"EXP #{self._experiment_n}")
+        self._busy_action = action
+        self._status_text.setText(f"WORKING · {action.upper()}")
+        for key, btn in self._action_buttons:
+            btn.setEnabled(False)
+        self._journal(f"▶ {action.upper()} started")
+
+    def _end_busy(self, action: str, success: bool = True):
+        self._busy_action = None
+        col = "#3fb950" if success else "#f85149"
+        self._status_led.setStyleSheet(f"color:{col}; font-size:14px;")
+        self._status_text.setStyleSheet(
+            f"color:{col}; font-weight:bold; font-size:11px; letter-spacing:1px;"
+        )
+        self._status_text.setText("IDLE" if success else "ERROR")
+        for key, btn in self._action_buttons:
+            btn.setEnabled(True)
+
+    def _journal(self, msg: str):
+        ts = datetime.now().strftime("%H:%M:%S")
+        line = f"[{ts}] {msg}"
+        self._notebook_entries.append(line)
+        item = QListWidgetItem(line)
+        self._notebook.addItem(item)
+        self._notebook.scrollToBottom()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 🧬 FILE DNA — per-file signature panel
+# ═════════════════════════════════════════════════════════════════════════════
+# Surfaces AI-consumable per-file DNA: path, size, mtime, sha256, line count,
+# top-level functions/classes/imports, AST complexity. Project-rooted, filtered
+# to .py by default. Recomputes on demand. Persists snapshots for diffing.
+
+class DNAPanel(QWidget):
+    """Renders per-file DNA signatures for the project root."""
+
+    SIG_DIR = Path.home() / ".stratum" / "dna"
+
+    def __init__(self, parent_app):
+        super().__init__()
+        self.parent_app = parent_app
+        self._workers   = []
+        self.SIG_DIR.mkdir(parents=True, exist_ok=True)
+        self._init_ui()
+        # Defer the project scan so DNAPanel construction doesn't block
+        # Layer 3 boot. 1.2s gives the rest of the rooms time to populate.
+        QTimer.singleShot(1200, self._scan_project)
+
+    def _init_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
+
+        hdr = QLabel("🧬  FILE DNA  —  AI-consumable per-file signatures")
+        hdr.setStyleSheet(
+            "color:#58a6ff; font-weight:bold; font-size:13px; letter-spacing:2px;"
+        )
+        root.addWidget(hdr)
+
+        # Filter row
+        ctrl = QHBoxLayout()
+        self._filter = QLineEdit()
+        self._filter.setPlaceholderText("Filter files (substring match)…")
+        self._filter.textChanged.connect(self._apply_filter)
+        ctrl.addWidget(self._filter, 1)
+        rescan = QPushButton("↻ Rescan")
+        rescan.clicked.connect(self._scan_project)
+        ctrl.addWidget(rescan)
+        snap = QPushButton("📸 Snapshot")
+        snap.setToolTip("Persist current DNA set to ~/.stratum/dna/<date>.json")
+        snap.clicked.connect(self._save_snapshot)
+        ctrl.addWidget(snap)
+        root.addLayout(ctrl)
+
+        # Split: file list | signature view
+        split = QSplitter(Qt.Orientation.Horizontal)
+        self._files = QListWidget()
+        self._files.currentItemChanged.connect(self._on_select)
+        split.addWidget(self._files)
+
+        self._sig = QTextEdit()
+        self._sig.setReadOnly(True)
+        self._sig.setStyleSheet(
+            "background:#010409; color:#7ee787; border:1px solid #30363d; "
+            "font-family:Consolas; font-size:11px;"
+        )
+        split.addWidget(self._sig)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 2)
+        root.addWidget(split, 1)
+
+        self._status_lbl = QLabel("Scanning project…")
+        self._status_lbl.setStyleSheet(
+            "background:#161b22; color:#8b949e; padding:4px 10px; "
+            "border-top:1px solid #30363d; font-size:11px;"
+        )
+        root.addWidget(self._status_lbl)
+
+        # Persistent disk cache — survives app restart. Keyed by relative path;
+        # entry validity gated on (mtime, size). On hit, no AST reparse needed.
+        # Domain 2 (Incremental Intelligence) — eliminates redundant scans.
+        self._dna_cache: dict[str, dict] = {}
+        self._cache_file = self.SIG_DIR / "cache.json"
+        try:
+            if self._cache_file.is_file():
+                self._dna_cache = json.loads(
+                    self._cache_file.read_text(encoding="utf-8")
+                )
+        except Exception:
+            self._dna_cache = {}
+
+    def _project_root(self) -> Path:
+        return Path(getattr(self.parent_app, "root", "."))
+
+    def _persist_cache(self):
+        """Atomic-ish write of the DNA cache to disk."""
+        try:
+            tmp = self._cache_file.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(self._dna_cache), encoding="utf-8")
+            tmp.replace(self._cache_file)
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
+
+    def _scan_project(self):
+        root = self._project_root()
+        self._status_lbl.setText(f"Scanning {root}…")
+        def work():
+            files: list[Path] = []
+            try:
+                for f in root.rglob("*.py"):
+                    parts = set(f.parts)
+                    if parts & {"__pycache__", "build", "dist", ".venv", "venv"}:
+                        continue
+                    files.append(f)
+            except Exception:
+                return []
+            files.sort(key=lambda p: str(p).lower())
+            return files[:400]
+
+        def done(files):
+            if not isinstance(files, list):
+                self._status_lbl.setText("Scan failed")
+                return
+            self._files.clear()
+            # Do NOT clear _dna_cache — keep prior computations for mtime-valid
+            # entries. Stale entries get invalidated lazily in _on_select.
+            for f in files:
+                self._files.addItem(QListWidgetItem(
+                    str(f.relative_to(root)) if f.is_relative_to(root) else str(f)
+                ))
+            valid = sum(
+                1 for k, v in self._dna_cache.items()
+                if isinstance(v, dict) and v.get("path")
+            )
+            self._status_lbl.setText(
+                f"{len(files)} files indexed · {valid} cached signatures available"
+            )
+
+        w = Worker(work)
+        w.result.connect(done)
+        w.finished.connect(lambda: self._workers.remove(w) if w in self._workers else None)
+        self._workers.append(w)
+        w.start()
+
+    def _apply_filter(self, text: str):
+        text = text.strip().lower()
+        for i in range(self._files.count()):
+            it = self._files.item(i)
+            it.setHidden(bool(text) and text not in it.text().lower())
+
+    def _on_select(self, cur, _prev):
+        if cur is None: return
+        rel = cur.text()
+        path = self._project_root() / rel
+        if not path.is_file():
+            self._sig.setPlainText(f"(missing) {path}")
+            return
+        # Cache hit gated on (mtime, size). If both match the stored values,
+        # the AST signature is byte-equivalent — no reparse needed.
+        try:
+            cur_mtime = path.stat().st_mtime
+            cur_size  = path.stat().st_size
+        except Exception:
+            cur_mtime = cur_size = None
+        cached = self._dna_cache.get(rel)
+        if (cached and cur_mtime is not None
+                and cached.get("_mtime") == cur_mtime
+                and cached.get("size") == cur_size):
+            self._sig.setPlainText(self._render(cached))
+            self._status_lbl.setText(f"cache hit · {rel}")
+            return
+        self._sig.setPlainText("⟳ computing DNA…")
+        def work():
+            return self._compute_dna(path)
+        def done(dna):
+            if isinstance(dna, dict) and dna.get("path"):
+                # Stamp mtime into the cached entry so a future hit can validate
+                dna["_mtime"] = cur_mtime
+                self._dna_cache[rel] = dna
+                self._sig.setPlainText(self._render(dna))
+                # Persist immediately so a crash doesn't lose the work
+                self._persist_cache()
+            else:
+                self._sig.setPlainText(f"[DNA failed: {dna}]")
+        w = Worker(work)
+        w.result.connect(done)
+        w.finished.connect(lambda: self._workers.remove(w) if w in self._workers else None)
+        self._workers.append(w)
+        w.start()
+
+    def _compute_dna(self, path: Path) -> dict:
+        import hashlib, ast as _ast
+        try:
+            raw = path.read_bytes()
+        except Exception as exc:
+            return {"error": str(exc)}
+        try:
+            text = raw.decode("utf-8-sig", errors="replace")
+        except Exception:
+            text = ""
+        sha = hashlib.sha256(raw).hexdigest()[:32]
+        lines = text.splitlines()
+        non_empty = sum(1 for ln in lines if ln.strip())
+        comments  = sum(1 for ln in lines if ln.lstrip().startswith("#"))
+        # AST extraction
+        funcs: list[tuple[str, int]] = []
+        classes: list[tuple[str, int]] = []
+        imports: list[str] = []
+        complexity = 0
+        try:
+            tree = _ast.parse(text)
+            for node in _ast.walk(tree):
+                if isinstance(node, _ast.FunctionDef):
+                    funcs.append((node.name, node.lineno))
+                    complexity += 1 + sum(
+                        1 for n in _ast.walk(node)
+                        if isinstance(n, (_ast.If, _ast.For, _ast.While, _ast.Try, _ast.With))
+                    )
+                elif isinstance(node, _ast.AsyncFunctionDef):
+                    funcs.append((f"async {node.name}", node.lineno))
+                elif isinstance(node, _ast.ClassDef):
+                    classes.append((node.name, node.lineno))
+                elif isinstance(node, _ast.Import):
+                    for a in node.names: imports.append(a.name)
+                elif isinstance(node, _ast.ImportFrom):
+                    mod = node.module or ""
+                    for a in node.names: imports.append(f"{mod}.{a.name}" if mod else a.name)
+        except SyntaxError as exc:
+            funcs.append((f"<SYNTAX ERROR: line {exc.lineno}: {exc.msg}>", exc.lineno or 0))
+        return {
+            "path":       str(path),
+            "size":       len(raw),
+            "sha256":     sha,
+            "mtime":      datetime.fromtimestamp(path.stat().st_mtime).isoformat()[:19],
+            "lines":      len(lines),
+            "non_empty":  non_empty,
+            "comments":   comments,
+            "funcs":      funcs[:80],
+            "classes":    classes[:40],
+            "imports":    sorted(set(imports))[:60],
+            "complexity": complexity,
+        }
+
+    def _render(self, dna: dict) -> str:
+        out = []
+        out.append(f"PATH        {dna['path']}")
+        out.append(f"SHA-256     {dna['sha256']}")
+        out.append(f"SIZE        {dna['size']} bytes")
+        out.append(f"MTIME       {dna['mtime']}")
+        out.append(f"LINES       {dna['lines']}  (non-empty {dna['non_empty']}, comments {dna['comments']})")
+        out.append(f"COMPLEXITY  {dna['complexity']}  (sum of branch points across functions)")
+        out.append("")
+        out.append("─── CLASSES ────────────────────────────────────────────")
+        for name, ln in dna["classes"]:
+            out.append(f"  L{ln:>5}  class {name}")
+        out.append("")
+        out.append("─── FUNCTIONS ──────────────────────────────────────────")
+        for name, ln in dna["funcs"]:
+            out.append(f"  L{ln:>5}  def {name}")
+        out.append("")
+        out.append("─── IMPORTS ────────────────────────────────────────────")
+        for imp in dna["imports"]:
+            out.append(f"  · {imp}")
+        return "\n".join(out)
+
+    def _save_snapshot(self):
+        if not self._dna_cache:
+            self._status_lbl.setText("Nothing to snapshot — click files first to compute DNA")
+            return
+        import json
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        fp = self.SIG_DIR / f"snapshot-{ts}.json"
+        try:
+            fp.write_text(json.dumps(self._dna_cache, indent=2), encoding="utf-8")
+            self._status_lbl.setText(f"Snapshot → {fp.name}  ({len(self._dna_cache)} files)")
+        except Exception as exc:
+            self._status_lbl.setText(f"Snapshot failed: {exc}")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 🏛  MEMORY PALACE — bridge wrapper + autonomous agent + UI panel
+# ═════════════════════════════════════════════════════════════════════════════
+# The palace itself is the external `mempalace` package (ChromaDB-backed
+# semantic memory). What lives here is:
+#   - lazy-import probe (mempalace might be missing in some installs)
+#   - MemoryAgent(QThread) — autonomous tick: prune stale locks every 10min,
+#     surface health snapshot every 60s, optionally mine fresh content.
+#   - MemPalacePanel(QWidget) — UI tab with live health, unified search,
+#     manual mine/prune actions, capitalized tag tooling.
+
+try:
+    import mempalace_bridge as _mp_bridge
+    _MP_BRIDGE_OK = True
+except Exception:
+    _mp_bridge = None
+    _MP_BRIDGE_OK = False
+
+
+from ui.memory_agent import MemoryAgent  # extracted 2026-05-17 (decomp Phase A pilot)
+
+
+class MemPalacePanel(QWidget):
+    """🏛  MEMORY PALACE — live health, unified search, manual actions.
+
+    Surfaces the bridge to the operator. Search uses semantic vector recall
+    (via mempalace.searcher.search_memories) — falls back to the WON FTS5
+    pipeline.search() helper when mempalace is unavailable.
+    """
+
+    def __init__(self, parent_app):
+        super().__init__()
+        self.parent_app = parent_app
+        self._workers   = []
+        self._agent     = None
+        self._init_ui()
+        # Defer the MemoryAgent QThread + first health probe so this widget
+        # constructs near-instantly during Layer-3 boot. The agent fires 1.5s
+        # after the panel exists — the user sees the tab populate, then the
+        # agent comes online with status feedback.
+        QTimer.singleShot(1500, self._start_agent)
+
+    # ── UI ──────────────────────────────────────────────────────────────────
+    def _init_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
+
+        # Header
+        hdr = QLabel("🏛  MEMORY PALACE  —  Semantic vector recall + autonomous agent")
+        hdr.setStyleSheet(
+            "color:#bc8cff; font-weight:bold; font-size:13px; letter-spacing:2px;"
+        )
+        root.addWidget(hdr)
+        sub = QLabel(
+            "ChromaDB-backed palace · Memory itself is a working agent · "
+            "Prunes stale locks · Mines log tails · Reads via vector similarity."
+        )
+        sub.setStyleSheet("color:#8b949e; font-size:11px;")
+        root.addWidget(sub)
+
+        # Health row
+        self._health_lbl = QLabel("(probing…)")
+        self._health_lbl.setStyleSheet(
+            "background:#0d1117; color:#7ee787; padding:8px 12px; "
+            "border:1px solid #30363d; font-family:Consolas; font-size:11px;"
+        )
+        self._health_lbl.setWordWrap(True)
+        root.addWidget(self._health_lbl)
+
+        # Search row
+        srow = QHBoxLayout()
+        self._search = QLineEdit()
+        self._search.setPlaceholderText(
+            "Search the palace semantically — e.g. 'authentication bug', 'family conversation'…"
+        )
+        self._search.returnPressed.connect(self._do_search)
+        srow.addWidget(self._search, 1)
+        btn_search = QPushButton("Search")
+        btn_search.setToolTip("Semantic vector recall across all mined content.")
+        btn_search.clicked.connect(self._do_search)
+        srow.addWidget(btn_search)
+        root.addLayout(srow)
+
+        # Tag-capitalize utility row — Dan's "capitalization" feature
+        crow = QHBoxLayout()
+        self._tag_input = QLineEdit()
+        self._tag_input.setPlaceholderText("Comma-separated topics to normalize…")
+        self._tag_input.setToolTip(
+            "Normalize topic tags to Title-Case-Hyphen format for "
+            "cross-store consistency. 'memory recall, ai monitor' → "
+            "'Memory-Recall_Ai-Monitor'."
+        )
+        crow.addWidget(self._tag_input, 1)
+        btn_cap = QPushButton("Capitalize")
+        btn_cap.setToolTip("Normalize tags to the palace's storage format.")
+        btn_cap.clicked.connect(self._do_capitalize)
+        crow.addWidget(btn_cap)
+        self._tag_out = QLineEdit()
+        self._tag_out.setReadOnly(True)
+        self._tag_out.setPlaceholderText("(normalized output appears here)")
+        crow.addWidget(self._tag_out, 1)
+        root.addLayout(crow)
+
+        # Results pane
+        self._results = QTextEdit()
+        self._results.setReadOnly(True)
+        self._results.setStyleSheet(
+            "background:#010409; color:#c9d1d9; border:1px solid #30363d; "
+            "font-family:Consolas; font-size:11px;"
+        )
+        root.addWidget(self._results, 1)
+
+        # Action row — manual operations
+        arow = QHBoxLayout()
+        btn_prune = QPushButton("Prune Stale Locks")
+        btn_prune.setToolTip("Delete .lock files older than 1 hour.")
+        btn_prune.clicked.connect(self._do_prune)
+        arow.addWidget(btn_prune)
+        btn_mine_log = QPushButton("Mine Log Tail")
+        btn_mine_log.setToolTip(
+            "Mine the last 8KB of ~/.stratum/stratum.log into the palace right now."
+        )
+        btn_mine_log.clicked.connect(self._do_mine_log)
+        arow.addWidget(btn_mine_log)
+        btn_mine_dir = QPushButton("Mine Directory…")
+        btn_mine_dir.setToolTip("Pick a directory; recursively mine every file into the palace.")
+        btn_mine_dir.clicked.connect(self._do_mine_dir)
+        arow.addWidget(btn_mine_dir)
+        btn_refresh = QPushButton("↻ Refresh Health")
+        btn_refresh.clicked.connect(self._refresh_health)
+        arow.addWidget(btn_refresh)
+        arow.addStretch()
+        root.addLayout(arow)
+
+        self._status_lbl = QLabel("agent: starting…")
+        self._status_lbl.setStyleSheet(
+            "background:#161b22; color:#8b949e; padding:4px 10px; "
+            "border-top:1px solid #30363d; font-size:11px;"
+        )
+        root.addWidget(self._status_lbl)
+
+    # ── Agent ───────────────────────────────────────────────────────────────
+    def _start_agent(self):
+        if not _MP_BRIDGE_OK:
+            self._health_lbl.setText("MemPalace bridge import failed — agent NOT started.")
+            self._status_lbl.setText("bridge unavailable")
+            return
+        self._agent = MemoryAgent(self)
+        self._agent.health_updated.connect(self._render_health)
+        self._agent.status.connect(self._status_lbl.setText)
+        self._agent.pruned.connect(lambda n: self._status_lbl.setText(f"agent pruned {n} stale locks"))
+        self._agent.start()
+        # Immediate first health snapshot — don't wait 60s
+        self._refresh_health()
+
+    def closeEvent(self, ev):
+        try:
+            if self._agent: self._agent.stop()
+        except Exception: pass
+        super().closeEvent(ev)
+
+    def _refresh_health(self):
+        if not _MP_BRIDGE_OK:
+            return
+        try:
+            self._render_health(_mp_bridge.health())
+        except Exception as exc:
+            self._health_lbl.setText(f"health probe failed: {exc}")
+
+    def _render_health(self, h: dict):
+        avail = "✓ AVAILABLE" if h.get("available") else "✗ UNAVAILABLE"
+        emb = h.get("embeddings", "?")
+        emb_str = f"{emb:,}" if isinstance(emb, int) else str(emb)
+        last = h.get("last_mine", 0.0)
+        last_str = (
+            datetime.fromtimestamp(last).strftime("%Y-%m-%d %H:%M:%S")
+            if last else "never"
+        )
+        self._health_lbl.setText(
+            f"{avail}   ·   wing: {h.get('wing','?')}   ·   size: {h.get('palace_mb', 0)} MB   "
+            f"·   embeddings: {emb_str}   ·   locks: {h.get('locks',0)} "
+            f"(stale: {h.get('stale_locks',0)})\n"
+            f"path: {h.get('palace_path','?')}\n"
+            f"last mine: {last_str}"
+        )
+
+    # ── Search ──────────────────────────────────────────────────────────────
+    def _do_search(self):
+        query = self._search.text().strip()
+        if not query:
+            return
+        if not _MP_BRIDGE_OK:
+            self._results.setPlainText("bridge unavailable")
+            return
+        self._results.setPlainText(f"⟳ searching palace for: {query}")
+        def work():
+            return _mp_bridge.search(query, n=10)
+        def done(hits):
+            if not isinstance(hits, list):
+                self._results.setPlainText(f"[search failed: {hits}]")
+                return
+            if not hits:
+                self._results.setPlainText(f"(0 hits for: {query})")
+                return
+            lines = [f"🔍  {len(hits)} hit(s) for: {query}", ""]
+            for i, h in enumerate(hits, 1):
+                sim = h.get("similarity", 0.0)
+                src = h.get("source_file", "?")
+                room = h.get("room", "")
+                wing = h.get("wing", "")
+                lines.append(f"── #{i}  sim={sim:.3f}  wing={wing}  room={room}")
+                lines.append(f"   src: {src}")
+                lines.append(f"   {h.get('text','')[:800]}")
+                lines.append("")
+            self._results.setPlainText("\n".join(lines))
+        self._run_bg(work, on_done=done)
+
+    def _do_capitalize(self):
+        out = _mp_bridge.capitalize_topic(self._tag_input.text()) if _MP_BRIDGE_OK else ""
+        self._tag_out.setText(out)
+
+    def _do_prune(self):
+        if not _MP_BRIDGE_OK: return
+        def work():
+            return _mp_bridge.prune_stale_locks(older_than_s=3600)
+        def done(n):
+            self._status_lbl.setText(f"pruned {n} stale lock(s)")
+            self._refresh_health()
+        self._run_bg(work, on_done=done)
+
+    def _do_mine_log(self):
+        if not _MP_BRIDGE_OK: return
+        log_path = Path.home() / ".stratum" / "stratum.log"
+        if not log_path.is_file():
+            self._status_lbl.setText("stratum.log not present")
+            return
+        try:
+            tail = log_path.read_text(encoding="utf-8", errors="replace")[-8000:]
+        except Exception as exc:
+            self._status_lbl.setText(f"log read failed: {exc}")
+            return
+        self._status_lbl.setText("mining log tail…")
+        def work():
+            return _mp_bridge.mine_text(tail, source="stratum-log-manual")
+        def done(ok):
+            self._status_lbl.setText("mined ✓" if ok else "mine failed")
+            self._refresh_health()
+        self._run_bg(work, on_done=done)
+
+    def _do_mine_dir(self):
+        if not _MP_BRIDGE_OK: return
+        path = QFileDialog.getExistingDirectory(self, "Pick directory to mine")
+        if not path:
+            return
+        self._status_lbl.setText(f"mining {path}…")
+        def work():
+            return _mp_bridge.mine_directory(path)
+        def done(result):
+            if isinstance(result, dict) and result.get("ok"):
+                self._status_lbl.setText(f"mined {result.get('mined',0)} files ✓")
+            else:
+                err = result.get("error") if isinstance(result, dict) else str(result)
+                self._status_lbl.setText(f"mine failed: {err}")
+            self._refresh_health()
+        self._run_bg(work, on_done=done)
+
+    # ── Threading helper ────────────────────────────────────────────────────
+    def _run_bg(self, fn, *args, on_done=None):
+        w = Worker(fn, *args)
+        if on_done: w.result.connect(on_done)
+        w.finished.connect(lambda: self._workers.remove(w) if w in self._workers else None)
+        self._workers.append(w)
+        w.start()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 🩺 DIAGNOSTICS — self-test panel implementing the Reality Enforcement
+# Directive in code. The app verifies its own surface and renders the result
+# with explicit VERIFIED / PARTIAL / BROKEN / UNTESTED classifications.
+# ═════════════════════════════════════════════════════════════════════════════
+
+class DiagnosticsPanel(QWidget):
+    """In-app verification suite. Click 'Run Self-Test' → probes each
+    subsystem → renders a table with classification + evidence. Stamps the
+    result to ~/.stratum/diagnostics/<ts>.json for audit trail."""
+
+    DIAG_DIR = Path.home() / ".stratum" / "diagnostics"
+    _CLASS_COLORS = {
+        "VERIFIED":   "#7ee787",
+        "PARTIAL":    "#f0a030",
+        "BROKEN":     "#f85149",
+        "UNRESOLVED": "#bc8cff",
+        "SIMULATED":  "#58a6ff",
+        "UNTESTED":   "#8b949e",
+    }
+
+    def __init__(self, parent_app):
+        super().__init__()
+        self.parent_app = parent_app
+        self._workers   = []
+        self.DIAG_DIR.mkdir(parents=True, exist_ok=True)
+        self._init_ui()
+
+    def _init_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(8)
+
+        hdr = QLabel("🩺  DIAGNOSTICS  —  Self-Test (Reality Enforcement)")
+        hdr.setStyleSheet("color:#bc8cff; font-weight:bold; font-size:13px; letter-spacing:2px;")
+        root.addWidget(hdr)
+
+        sub = QLabel(
+            "Click Run Self-Test. Every subsystem is probed and classified "
+            "VERIFIED / PARTIAL / BROKEN / UNRESOLVED / UNTESTED with evidence. "
+            "Snapshot persists to ~/.stratum/diagnostics/."
+        )
+        sub.setStyleSheet("color:#8b949e; font-size:11px;")
+        sub.setWordWrap(True)
+        root.addWidget(sub)
+
+        # Run button + summary line
+        ctrl = QHBoxLayout()
+        self._run_btn = QPushButton("▶ Run Self-Test")
+        self._run_btn.setToolTip("Probe bridge, palace health, log writer, repair "
+                                 "detector, MemoryAgent, all 20 tab build methods.")
+        self._run_btn.setAccessibleName("diagnostics-run-button")
+        self._run_btn.clicked.connect(self._run_tests)
+        ctrl.addWidget(self._run_btn)
+        self._summary = QLabel("(not yet run)")
+        self._summary.setStyleSheet("color:#8b949e; font-size:12px; padding:0 12px;")
+        self._summary.setAccessibleName("diagnostics-summary")
+        ctrl.addWidget(self._summary, 1)
+        root.addLayout(ctrl)
+
+        # Results table — rendered as styled HTML in a QTextEdit
+        self._results = QTextEdit()
+        self._results.setReadOnly(True)
+        self._results.setStyleSheet(
+            "background:#010409; color:#c9d1d9; border:1px solid #30363d; "
+            "font-family:Consolas; font-size:11px;"
+        )
+        self._results.setAccessibleName("diagnostics-results")
+        root.addWidget(self._results, 1)
+
+        # Status strip
+        self._status_lbl = QLabel("ready")
+        self._status_lbl.setStyleSheet(
+            "background:#161b22; color:#8b949e; padding:4px 10px; "
+            "border-top:1px solid #30363d; font-size:11px;"
+        )
+        self._status_lbl.setAccessibleName("diagnostics-status")
+        root.addWidget(self._status_lbl)
+
+    # ── Test runner ─────────────────────────────────────────────────────────
+    def _run_tests(self):
+        self._run_btn.setEnabled(False)
+        self._run_btn.setText("⏳ Running…")
+        self._results.setPlainText("⟳ probing subsystems…")
+        self._status_lbl.setText("running probes…")
+
+        def work():
+            return self._collect_probes()
+
+        def done(probes):
+            self._run_btn.setEnabled(True)
+            self._run_btn.setText("▶ Run Self-Test")
+            if not isinstance(probes, list):
+                self._results.setPlainText(f"[runner failed: {probes}]")
+                self._status_lbl.setText("error")
+                return
+            self._render(probes)
+            self._persist(probes)
+            counts = {}
+            for p in probes:
+                counts[p["class"]] = counts.get(p["class"], 0) + 1
+            self._summary.setText(" · ".join(f"{k}:{v}" for k, v in counts.items()))
+            self._status_lbl.setText(f"complete · {len(probes)} probes")
+
+        w = Worker(work)
+        w.result.connect(done)
+        w.finished.connect(lambda: self._workers.remove(w) if w in self._workers else None)
+        self._workers.append(w)
+        w.start()
+
+    # ── Probes ──────────────────────────────────────────────────────────────
+    def _collect_probes(self) -> list[dict]:
+        out: list[dict] = []
+        def add(name, klass, evidence):
+            out.append({"name": name, "class": klass, "evidence": evidence})
+
+        # (1) MemPalace bridge
+        if _MP_BRIDGE_OK and _mp_bridge:
+            try:
+                if _mp_bridge.is_available():
+                    h = _mp_bridge.health()
+                    add("mempalace_bridge.is_available", "VERIFIED",
+                        f"available · {h.get('embeddings','?')} embeddings · {h.get('palace_mb','?')} MB")
+                else:
+                    add("mempalace_bridge.is_available", "BROKEN", "is_available() returned False")
+                # Search round-trip
+                hits = _mp_bridge.search("memory", n=3)
+                if hits:
+                    add("mempalace_bridge.search", "VERIFIED", f"{len(hits)} hits returned")
+                else:
+                    add("mempalace_bridge.search", "PARTIAL", "0 hits (palace may be empty)")
+                # Capitalize round-trip
+                cap = _mp_bridge.capitalize_topic("memory recall, ai monitor")
+                if cap == "Memory-Recall_Ai-Monitor":
+                    add("mempalace_bridge.capitalize_topic", "VERIFIED", f"got {cap!r}")
+                else:
+                    add("mempalace_bridge.capitalize_topic", "BROKEN", f"got {cap!r}")
+            except Exception as exc:
+                add("mempalace_bridge", "BROKEN", f"exception: {exc}")
+        else:
+            add("mempalace_bridge", "BROKEN", "bridge module not importable")
+
+        # (2) Log writer
+        log_path = Path.home() / ".stratum" / "stratum.log"
+        if log_path.is_file():
+            age = (datetime.now().timestamp() - log_path.stat().st_mtime)
+            if age < 3600:
+                add("stratum.log writes", "VERIFIED", f"mtime {int(age)}s ago · {log_path.stat().st_size} bytes")
+            else:
+                add("stratum.log writes", "PARTIAL", f"file exists but stale ({int(age/60)}min)")
+        else:
+            add("stratum.log writes", "BROKEN", "log file missing")
+
+        # (3) Repair detector
+        dash = getattr(self.parent_app, "dashboard", None)
+        if dash is not None and hasattr(dash, "_repair_issues"):
+            n = len(getattr(dash, "_repair_issues", []))
+            add("repair_detector._collect_issues", "VERIFIED",
+                f"detector wired · {n} issue(s) currently surfaced")
+        else:
+            add("repair_detector._collect_issues", "UNRESOLVED", "dashboard not reachable")
+
+        # (4) MemoryAgent thread (in Palace panel)
+        mp_panel = getattr(dash, "_mempalace_tab", None) if dash else None
+        if mp_panel is not None:
+            agent = getattr(mp_panel, "_agent", None)
+            if agent is None:
+                add("MemoryAgent.thread", "UNTESTED", "agent not yet started (1.5s defer)")
+            elif agent.isRunning():
+                add("MemoryAgent.thread", "VERIFIED", "QThread running")
+            else:
+                add("MemoryAgent.thread", "PARTIAL", "agent constructed but not running")
+        else:
+            add("MemoryAgent.thread", "UNRESOLVED", "palace tab not constructed")
+
+        # (5) Tab construction count
+        if dash and hasattr(dash, "tabs"):
+            tc = dash.tabs.count()
+            if tc >= 19:
+                add("tab construction", "VERIFIED", f"{tc} tabs present")
+            else:
+                add("tab construction", "PARTIAL", f"only {tc} tabs")
+        else:
+            add("tab construction", "UNRESOLVED", "tabs widget missing")
+
+        # (6) Worker pool health
+        if dash and hasattr(dash, "_workers"):
+            n = len(dash._workers)
+            if n < 8:
+                add("worker_pool.size", "VERIFIED", f"{n} active workers (cap=8)")
+            else:
+                add("worker_pool.size", "PARTIAL", f"{n} workers — near cap")
+        else:
+            add("worker_pool.size", "UNRESOLVED", "dashboard not reachable")
+
+        # (7) ChromaDB availability — frozen-exe critical check
+        try:
+            import chromadb  # noqa
+            add("chromadb importable", "VERIFIED", f"v{getattr(chromadb, '__version__', '?')}")
+        except Exception as exc:
+            add("chromadb importable", "BROKEN", str(exc))
+
+        # (8) Splash closed
+        app_inst = self.parent_app
+        if getattr(app_inst, "_splash", None) is None:
+            add("boot.splash.closed", "VERIFIED", "splash reference cleared after Layer-3 done")
+        else:
+            add("boot.splash.closed", "PARTIAL", "splash still referenced")
+
+        # (9) Single-instance lock
+        lock = getattr(app_inst, "_single_lock", None)
+        if lock is not None:
+            try:
+                pos = lock.tell()
+                add("single_instance_lock", "VERIFIED", f"lock held (fd pos={pos})")
+            except Exception as exc:
+                add("single_instance_lock", "PARTIAL", f"lock handle but read failed: {exc}")
+        else:
+            add("single_instance_lock", "UNRESOLVED", "no lock reference")
+
+        # (10) Stale palace locks
+        if _MP_BRIDGE_OK and _mp_bridge:
+            try:
+                h2 = _mp_bridge.health()
+                sl = h2.get("stale_locks", -1)
+                if sl == 0:
+                    add("palace.stale_locks", "VERIFIED", "0 stale")
+                elif sl > 0:
+                    add("palace.stale_locks", "PARTIAL", f"{sl} stale (will be pruned next agent tick)")
+                else:
+                    add("palace.stale_locks", "UNRESOLVED", "lock dir not readable")
+            except Exception as exc:
+                add("palace.stale_locks", "UNRESOLVED", str(exc))
+
+        # (11) Pyramid graph glow primitive — instantiate GraphCanvas directly
+        # and exercise set_active/clear_active to prove the state machine.
+        try:
+            from pyramid_ui import GraphCanvas as _GC
+            gc = _GC()
+            gc.set_graph({"a": ["b"], "b": []})
+            gc.set_active("a", True)
+            active_after_set = "a" in gc._active
+            gc.clear_active()
+            active_after_clear = len(gc._active) == 0
+            if active_after_set and active_after_clear:
+                add("pyramid.graph.glow_state_machine", "VERIFIED",
+                    "set_active + clear_active round-trip OK")
+            else:
+                add("pyramid.graph.glow_state_machine", "BROKEN",
+                    f"set={active_after_set} clear={active_after_clear}")
+            gc.deleteLater()
+        except Exception as exc:
+            add("pyramid.graph.glow_state_machine", "UNRESOLVED",
+                f"GraphCanvas probe failed: {exc}")
+
+        # (12) DNA tab state preservation — count files in panel cache + list
+        dna_panel = getattr(dash, "_dna_tab", None) if dash else None
+        if dna_panel is not None:
+            try:
+                list_count  = dna_panel._files.count() if hasattr(dna_panel, "_files") else -1
+                cache_size  = len(getattr(dna_panel, "_dna_cache", {}))
+                if list_count > 5:
+                    add("dna.file_list_populated", "VERIFIED",
+                        f"{list_count} files indexed · {cache_size} cached signatures")
+                elif list_count == 0:
+                    add("dna.file_list_populated", "PARTIAL",
+                        "0 files — scan may not have run yet (1200ms deferred)")
+                else:
+                    add("dna.file_list_populated", "PARTIAL",
+                        f"only {list_count} files indexed")
+            except Exception as exc:
+                add("dna.file_list_populated", "UNRESOLVED", str(exc))
+        else:
+            add("dna.file_list_populated", "UNRESOLVED", "DNA panel not constructed")
+
+        # (14) Stage-2 service registry — Pulse / MemoryMaintenance / Harvester
+        # adapters should be registered after their direct-start succeeded.
+        try:
+            reg = getattr(self.parent_app, "_service_registry", None)
+            if reg is None:
+                add("services.registry_health", "UNRESOLVED",
+                    "core.services unavailable in this build")
+            else:
+                healths = reg.all_health()
+                names = sorted(h["name"] for h in healths)
+                running = sum(1 for h in healths if h.get("running"))
+                if not healths:
+                    add("services.registry_health", "PARTIAL",
+                        "registry present but empty (no adapters adopted)")
+                else:
+                    cls = "VERIFIED" if running == len(healths) else "PARTIAL"
+                    add("services.registry_health", cls,
+                        f"{running}/{len(healths)} running · " + " · ".join(names))
+        except Exception as exc:
+            add("services.registry_health", "UNRESOLVED",
+                f"probe failed: {exc}")
+
+        # (15) WON Analysis notification round-trip
+        # Read current unread count, inject synth, re-read, mark read, re-read.
+        try:
+            unread_before = len(get_daemon_notifications(unread_only=True))
+            notif_path = NOTIFY_FILE
+            if not notif_path.exists():
+                add("won.analysis_apply_roundtrip", "PARTIAL",
+                    "won_notifications.json absent — daemon never wrote one")
+            else:
+                # Read full file, append synth, write back, re-probe, then rollback.
+                original_raw = notif_path.read_text(encoding="utf-8")
+                try:
+                    original = json.loads(original_raw)
+                except Exception:
+                    original = []
+                synth = {
+                    "ts":       datetime.now().isoformat(),
+                    "title":    "DIAGNOSTICS-PROBE synth analysis",
+                    "body":     "ANALYSIS: probe-only synthetic. -> Fix: no action.",
+                    "priority": "normal",
+                    "read":     False,
+                }
+                augmented = list(original) + [synth]
+                notif_path.write_text(json.dumps(augmented, indent=2),
+                                       encoding="utf-8")
+                unread_after_inject = len(get_daemon_notifications(unread_only=True))
+                # Roll back to original — do NOT call mark_notifications_read because
+                # that would touch real daemon notifications.
+                notif_path.write_text(original_raw, encoding="utf-8")
+                unread_after_rollback = len(get_daemon_notifications(unread_only=True))
+                if (unread_after_inject == unread_before + 1
+                        and unread_after_rollback == unread_before):
+                    add("won.analysis_apply_roundtrip", "VERIFIED",
+                        f"inject (+1) + rollback (=base) confirmed at {unread_before}→{unread_after_inject}→{unread_after_rollback}")
+                else:
+                    add("won.analysis_apply_roundtrip", "BROKEN",
+                        f"counts: {unread_before}/{unread_after_inject}/{unread_after_rollback}")
+        except Exception as exc:
+            add("won.analysis_apply_roundtrip", "UNRESOLVED",
+                f"probe failed: {exc}")
+
+        return out
+
+    def _render(self, probes: list[dict]):
+        rows = []
+        for p in probes:
+            color = self._CLASS_COLORS.get(p["class"], "#c9d1d9")
+            rows.append(
+                f'<tr><td style="padding:4px 8px;">{p["name"]}</td>'
+                f'<td style="padding:4px 8px; color:{color}; font-weight:bold;">{p["class"]}</td>'
+                f'<td style="padding:4px 8px; color:#8b949e;">{p["evidence"]}</td></tr>'
+            )
+        html = (
+            '<table style="border-collapse:collapse; font-family:Consolas;">'
+            '<tr style="color:#58a6ff; font-weight:bold;">'
+            '<td style="padding:4px 8px;">Probe</td>'
+            '<td style="padding:4px 8px;">Class</td>'
+            '<td style="padding:4px 8px;">Evidence</td></tr>'
+            + "".join(rows) +
+            '</table>'
+        )
+        self._results.setHtml(html)
+
+    def _persist(self, probes: list[dict]):
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        out = self.DIAG_DIR / f"selftest-{ts}.json"
+        try:
+            out.write_text(
+                json.dumps({"ts": ts, "probes": probes}, indent=2, default=str),
+                encoding="utf-8",
+            )
+            self._status_lbl.setText(f"snapshot → {out.name}")
+        except Exception as exc:
+            self._status_lbl.setText(f"snapshot failed: {exc}")
+
 
 class FloatingWidget(QWidget):
     """DBOMBCENTRAL operator dock.
@@ -5337,6 +7598,7 @@ class FloatingWidget(QWidget):
     """
     request_show = pyqtSignal(int, int, str)
     request_hide = pyqtSignal()
+    won_result   = pyqtSignal(str, str)
 
     def __init__(self, parent_app):
         super().__init__(None)
@@ -5352,14 +7614,30 @@ class FloatingWidget(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 6, 8, 6)
 
-        # ── Header row: status label + ⚓ pin toggle ─────────────────
+        # ── Header row: status label + 📎 attach + ⚓ pin ────────────
         header = QHBoxLayout()
         self._label = QLabel("DBOMBCENTRAL")
         self._label.setStyleSheet("color:#58a6ff; font-weight:bold; font-size:11px;")
         header.addWidget(self._label, 1)
+
+        self._attach_btn = QPushButton("📎")
+        self._attach_btn.setFixedSize(22, 22)
+        self._attach_btn.setToolTip(
+            "Attach the dock to a file — Research / Plan / Learn / Summarize "
+            "then operate on that file's contents (manifest into the file)."
+        )
+        self._attach_btn.setStyleSheet(
+            "background:#21262d; color:#8b949e; border:1px solid #30363d;"
+            " border-radius:3px; font-size:11px;"
+        )
+        self._attach_btn.clicked.connect(self._toggle_attach)
+        header.addWidget(self._attach_btn)
+
         self._pin_btn = QPushButton("⚓")
         self._pin_btn.setFixedSize(22, 22)
-        self._pin_btn.setToolTip("Latch dock at designated spot (toggle).")
+        self._pin_btn.setToolTip(
+            "Latch dock at top-right (toggle). Unlatched = follow active text field."
+        )
         self._pin_btn.setCheckable(True)
         self._pin_btn.setStyleSheet(
             "background:#21262d; color:#8b949e; border:1px solid #30363d;"
@@ -5369,40 +7647,90 @@ class FloatingWidget(QWidget):
         header.addWidget(self._pin_btn)
         lay.addLayout(header)
 
-        # ── Action row: DBOMB-branded buttons ────────────────────────
-        btns = QHBoxLayout()
-        actions = [
-            (DBombButton.PRIMELATCH if DETCORE_OK else "PRIMELATCH",
-             self._primelatch,
-             "Prime WICKCORE with top-3 DETBANK fragments → active browser chat."),
-            (DBombButton.DETHUB if DETCORE_OK else "DETHUB",
-             self._dethub,
-             "Open DBOMB command switchboard (full dashboard)."),
-            (DBombButton.BREACHGATE if DETCORE_OK else "BREACHGATE",
-             self._breachgate,
-             "Open the two-entity breach room (WON + WICKCORE)."),
-            (DBombButton.WICKFOCUS if DETCORE_OK else "WICKFOCUS",
-             self._wickfocus,
-             "Assemble DETCORE-bound brief → clipboard for WICKCORE channel."),
+        # Attach-mode state
+        self._attached_file = None
+        self._transparent_mode = False
+        self._reminder_timer = None
+        # ── WON ACTION ROW (primary): Research / Plan / Learn / Summarize ──
+        won_btns = QHBoxLayout()
+        won_actions = [
+            ("Research",  "research",  "Research the clipboard topic deeply: facts, sources, uncertainties."),
+            ("Plan",      "plan",      "Build a stepwise plan from the clipboard objective."),
+            ("Learn",     "learn",     "Extract core lessons from clipboard content. Stored to memory."),
+            ("Summarize", "summarize", "Summarize clipboard content in 3 bullets. Result also copied to clipboard."),
         ]
-        for label, slot, tip in actions:
-            b = QPushButton(label)
-            b.setFixedHeight(22)
-            b.setToolTip(tip)
-            if label.startswith("WICKFOCUS"):
-                b.setStyleSheet(
-                    "background:#1f6feb; color:#fff; font-weight:bold;"
-                    " border-radius:3px;"
-                )
-            b.clicked.connect(slot)
-            btns.addWidget(b)
-        lay.addLayout(btns)
+        for w_label, w_action, w_tip in won_actions:
+            wb = QPushButton(w_label)
+            wb.setFixedHeight(22)
+            wb.setToolTip(w_tip)
+            wb.setStyleSheet(
+                "QPushButton{background:#1f6feb; color:#fff; font-weight:bold;"
+                " border:1px solid #1f6feb; border-radius:3px; font-size:11px;"
+                " padding:2px 6px;}"
+                "QPushButton:hover{background:#388bfd;}"
+                "QPushButton:disabled{background:#21262d; color:#6e7681;}"
+            )
+            wb.clicked.connect(lambda _, a=w_action: self._fire_won(a))
+            won_btns.addWidget(wb)
+        # Insert below the header (header is at index 0)
+        lay.insertLayout(1, won_btns)
+
+        # ── ATTACH-MODE OPTION ROW (hidden until attached) ──────────────────
+        self._attach_row = QWidget()
+        opt_lay = QHBoxLayout(self._attach_row)
+        opt_lay.setContentsMargins(0, 0, 0, 0)
+        opt_lay.setSpacing(4)
+        opt_actions = [
+            ("⏱ 5min",      self._check_back_5min,
+             "Set a quiet 5-minute reminder. Dock will flash and restore opacity."),
+            ("✕ Exit",      self._exit_dock,
+             "Close the dock entirely. Reopens from the tray or app menu."),
+            ("👻 Translucent", self._toggle_transparent,
+             "See-through mode: window opacity drops; clicks pass through "
+             "except where buttons sit."),
+        ]
+        self._opt_buttons = []
+        for label, slot, tip in opt_actions:
+            ob = QPushButton(label)
+            ob.setFixedHeight(20)
+            ob.setToolTip(tip)
+            ob.setStyleSheet(
+                "QPushButton{background:#21262d; color:#c9d1d9; font-size:10px;"
+                " border:1px solid #30363d; border-radius:3px; padding:2px 6px;}"
+                "QPushButton:hover{background:#30363d;}"
+            )
+            ob.clicked.connect(slot)
+            opt_lay.addWidget(ob)
+            self._opt_buttons.append(ob)
+        self._attach_row.hide()  # only visible while attached
+        lay.insertWidget(2, self._attach_row)
+
+        # ── WON result area (hidden until first result lands) ──
+        self._won_result_area = QTextEdit()
+        self._won_result_area.setReadOnly(True)
+        self._won_result_area.setMaximumHeight(180)
+        self._won_result_area.hide()
+        self._won_result_area.setStyleSheet(
+            "background:#0d1117; color:#c9d1d9; border:1px solid #30363d;"
+            " border-radius:3px; font-size:11px; padding:4px;"
+        )
+        lay.addWidget(self._won_result_area)
+        self.won_result.connect(self._show_won_result, Qt.ConnectionType.QueuedConnection)
+
         self.setFixedWidth(WICK_DOCK_WIDTH if DETCORE_OK else 320)
         self._portal = None
-        self._latched = False  # auto-follow text fields until first click / pin
+        # Auto-latched from boot — stays stationary at designated spot.
+        # The ⚓ pin still toggles back to follow-the-text-field mode if user wants.
+        self._latched = True
 
         self.request_show.connect(self._show_at, Qt.ConnectionType.QueuedConnection)
         self.request_hide.connect(self._maybe_hide, Qt.ConnectionType.QueuedConnection)
+
+        # Park at designated spot on first event-loop tick + sync pin state
+        QTimer.singleShot(0, lambda: (
+            self._pin_btn.setChecked(True),
+            self._park_designated(),
+        ))
 
     # ── Latch + positioning ─────────────────────────────────────────
     def _toggle_latch(self):
@@ -5479,13 +7807,25 @@ class FloatingWidget(QWidget):
         if dash is not None and idx is not None:
             try:
                 dash.tabs.setCurrentIndex(idx)
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
         self._flash("◈ HUB · ▲ PYRAMID", "#58a6ff")
 
     def _breachgate(self):
-        """BREACHGATE — open two-entity breach room."""
+        """BREACHGATE — focus embedded Portal tab (or fall back to popout)."""
         self._engage_latch()
+        # Prefer embedded tab when available
+        dash = getattr(self.parent_app, "dashboard", None)
+        if dash is not None and not DETCORE_OK and getattr(dash, "_portal_tab", None) is not None:
+            try:
+                dash.tabs.setCurrentWidget(dash._portal_tab)
+                dash.raise_()
+                dash.activateWindow()
+                self._flash("◊ PORTAL FOCUSED", "#58a6ff")
+                return
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
+        # Fallback / DETCORE-specific path
         if self._portal is None or not self._portal.isVisible():
             if DETCORE_OK:
                 self._portal = _detcore.breachgate_room(self.parent_app)
@@ -5530,6 +7870,196 @@ class FloatingWidget(QWidget):
 
     def _reset_label(self):
         self._label.setText("DBOMBCENTRAL")
+
+    # ── WON action handlers (Research / Plan / Learn / Summarize) ────────────
+    _WON_PROMPTS = {
+        "research":  ("Research the following topic. Return: 3-5 key facts, "
+                      "3 sources to verify, 2 uncertainties. Be specific.\n\nTopic:\n{ctx}"),
+        "plan":      ("Build a stepwise plan to accomplish the following. "
+                      "Order steps by dependency. Be concrete.\n\nObjective:\n{ctx}"),
+        "learn":     ("Extract the 3 most important lessons from the following content. "
+                      "Each lesson: 1-2 sentences. Output as bullets.\n\nContent:\n{ctx}"),
+        "summarize": ("Summarize the following in exactly 3 bullets. "
+                      "Each bullet ≤ 20 words.\n\nContent:\n{ctx}"),
+    }
+
+    def _fire_won(self, action: str):
+        """Fire a WON action.
+
+        Context source:
+          - If dock is ATTACHED to a file → use file contents (manifest mode)
+          - Otherwise → use system clipboard text
+
+        Orchestration:
+          1. Resolve context (file or clipboard)
+          2. Build action-typed prompt
+          3. Call WON's ollama_think in a background thread
+          4. Persist {ts, action, input, output} to ~/.stratum/won_actions.jsonl
+          5. Write typed artifact to ~/.stratum/won_actions/<action>/<ts>.md
+          6. Log action to stratum.log
+          7. For summarize: also push output to system clipboard
+          8. Surface result in the dock's result panel
+        """
+        if self._attached_file:
+            try:
+                ctx = Path(self._attached_file).read_text(
+                    encoding="utf-8", errors="replace").strip()
+            except Exception as exc:
+                self._flash("file read err", "#f85149")
+                logging.getLogger("stratum.won_action").warning(
+                    "attached read failed: %s", exc)
+                return
+            if not ctx:
+                self._flash("file empty", "#f85149")
+                return
+        else:
+            ctx = (QApplication.clipboard().text() or "").strip()
+            if not ctx:
+                self._flash("clipboard empty", "#f85149")
+                return
+        ctx = ctx[:2000]
+        template = self._WON_PROMPTS.get(action)
+        if not template:
+            return
+        if not WD_OK:
+            self._flash("WON unavailable", "#f85149")
+            return
+        prompt = template.format(ctx=ctx)
+        _won_log = logging.getLogger("stratum.won_action")
+        _won_log.info("WON action requested: %s (input_chars=%d)", action, len(ctx))
+        self._flash(f"{action.upper()}…", "#1f6feb")
+
+        def worker():
+            try:
+                result = _wd.ollama_think(prompt, max_tokens=600, timeout=60)
+            except Exception as exc:
+                result = f"[WON error: {exc}]"
+            out = (result or "").strip() or "[WON returned no output]"
+            try:
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                stratum_dir = Path.home() / ".stratum"
+                typed_dir = stratum_dir / "won_actions" / action
+                typed_dir.mkdir(parents=True, exist_ok=True)
+                artifact = typed_dir / f"{ts}.md"
+                artifact.write_text(
+                    f"# {action.upper()} — {ts}\n\n"
+                    f"## Input (first 500 chars)\n\n```\n{ctx[:500]}\n```\n\n"
+                    f"## Output\n\n{out}\n",
+                    encoding="utf-8",
+                )
+                with (stratum_dir / "won_actions.jsonl").open("a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "ts":            datetime.now().isoformat(),
+                        "action":        action,
+                        "input_preview": ctx[:200],
+                        "output":        out,
+                        "artifact":      str(artifact),
+                    }) + "\n")
+                _won_log.info(
+                    "WON action complete: %s, output_chars=%d, artifact=%s",
+                    action, len(out), artifact.name,
+                )
+                if action == "summarize":
+                    QApplication.clipboard().setText(out)
+            except Exception as exc:
+                _won_log.warning("WON action persist failed: %s", exc)
+            self.won_result.emit(action, out)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_won_result(self, action: str, text: str):
+        self._won_result_area.setPlainText(f"=== {action.upper()} ===\n\n{text}")
+        self._won_result_area.show()
+        self.adjustSize()
+        self._flash("done", "#3fb950")
+
+    # ── Attach to file: dock manifests into that file's content ─────────────
+    def _toggle_attach(self):
+        if self._attached_file:
+            # Detach
+            self._attached_file = None
+            self._attach_row.hide()
+            self._label.setText("DBOMBCENTRAL")
+            self._label.setStyleSheet("color:#58a6ff; font-weight:bold; font-size:11px;")
+            self._attach_btn.setStyleSheet(
+                "background:#21262d; color:#8b949e; border:1px solid #30363d;"
+                " border-radius:3px; font-size:11px;"
+            )
+            self.adjustSize()
+            logging.getLogger("stratum.won_action").info("dock detached")
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Attach dock to file")
+        if not path:
+            return
+        self._attached_file = path
+        name = Path(path).name
+        self._label.setText(f"📎 {name[:24]}")
+        self._label.setStyleSheet("color:#3fb950; font-weight:bold; font-size:11px;")
+        self._attach_btn.setStyleSheet(
+            "background:#3fb950; color:#fff; border:1px solid #3fb950;"
+            " border-radius:3px; font-size:11px;"
+        )
+        self._attach_row.show()
+        self.adjustSize()
+        logging.getLogger("stratum.won_action").info("dock attached to: %s", path)
+
+    # ── Attach-mode option handlers ─────────────────────────────────────────
+    def _check_back_5min(self):
+        """Set a quiet 5-minute reminder. On fire: restore opacity + flash."""
+        if self._reminder_timer is not None:
+            self._reminder_timer.stop()
+        self._reminder_timer = QTimer(self)
+        self._reminder_timer.setSingleShot(True)
+        self._reminder_timer.timeout.connect(self._on_reminder_fire)
+        self._reminder_timer.start(5 * 60 * 1000)
+        self._flash("⏱ 5min set", "#f0a030")
+        logging.getLogger("stratum.won_action").info("5-min reminder scheduled")
+
+    def _on_reminder_fire(self):
+        # Restore opacity if translucent + flash + ensure visible
+        if self._transparent_mode:
+            self._toggle_transparent()  # turn off
+        self.show()
+        self.raise_()
+        self._flash("⏱ CHECK BACK", "#f0a030")
+        logging.getLogger("stratum.won_action").info("5-min reminder fired")
+
+    def _exit_dock(self):
+        """Terminate the dock entirely (hide). Reopen via tray or app menu."""
+        if self._reminder_timer is not None:
+            self._reminder_timer.stop()
+        logging.getLogger("stratum.won_action").info("dock exit pressed")
+        self.hide()
+
+    def _toggle_transparent(self):
+        """Toggle translucent mode. Opaque ↔ 0.35 opacity + click-through bg."""
+        self._transparent_mode = not self._transparent_mode
+        if self._transparent_mode:
+            self.setWindowOpacity(0.35)
+            # Click-through: mask only the button rectangles so clicks elsewhere
+            # pass through to the desktop. Buttons remain hit-testable.
+            self._apply_button_mask()
+            self._flash("👻 translucent", "#8b949e")
+        else:
+            self.setWindowOpacity(1.0)
+            self.clearMask()
+            self._flash("opaque", "#3fb950")
+
+    def _apply_button_mask(self):
+        from PyQt6.QtGui import QRegion
+        region = QRegion()
+        for child in self.findChildren(QPushButton):
+            if child.isVisible():
+                region = region.united(QRegion(child.geometry()))
+        # Also include the header label so the dock has a draggable handle
+        region = region.united(QRegion(self._label.geometry()))
+        if not region.isEmpty():
+            self.setMask(region)
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        if self._transparent_mode:
+            self._apply_button_mask()
         self._label.setStyleSheet("color:#58a6ff; font-weight:bold; font-size:11px;")
 
 
@@ -5537,31 +8067,228 @@ class FloatingWidget(QWidget):
 # MAIN APP
 # ============================================================
 
+# ═════════════════════════════════════════════════════════════════════════════
+# BOOT STABILIZER — splash + single-instance lock
+# ═════════════════════════════════════════════════════════════════════════════
+
+def _acquire_single_instance_lock():
+    """Try to acquire an exclusive lock at ~/.stratum/aimonitor.lock.
+
+    Returns the file handle on success (caller must keep a reference so the
+    lock stays held for the process lifetime). Returns None if another
+    instance already holds the lock — caller should exit.
+
+    Windows: uses msvcrt.locking; POSIX: fcntl.lockf. Falls back to no-op
+    if neither is available (i.e. lock held trivially).
+    """
+    try:
+        lock_path = Path.home() / ".stratum" / "aimonitor.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        # Open in append-binary so we can write a PID + truncate without race
+        fh = open(lock_path, "a+b")
+        try:
+            import msvcrt
+            try:
+                msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                fh.close()
+                return None
+        except ImportError:
+            try:
+                import fcntl
+                try:
+                    fcntl.lockf(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    fh.close()
+                    return None
+            except ImportError:
+                pass  # No lock support — best effort, just return the handle
+        try:
+            fh.seek(0); fh.truncate(0)
+            fh.write(f"{os.getpid()}\n".encode("utf-8"))
+            fh.flush()
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
+        return fh
+    except Exception:
+        return None
+
+
+def _make_boot_splash():
+    """Render a 540x300 dark splash with the STRATUM mark."""
+    try:
+        pix = QPixmap(540, 300)
+        pix.fill(QColor("#06091c"))
+        p = QPainter(pix)
+        try:
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            # Border
+            p.setPen(QColor("#3a8fc8"))
+            p.drawRect(0, 0, 539, 299)
+            # Title
+            p.setFont(QFont("Consolas", 28, QFont.Weight.Bold))
+            p.setPen(QColor("#3a8fc8"))
+            p.drawText(
+                pix.rect().adjusted(0, 60, 0, 0),
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                "STRATUM"
+            )
+            # Subtitle
+            p.setFont(QFont("Consolas", 11))
+            p.setPen(QColor("#5070a0"))
+            p.drawText(
+                pix.rect().adjusted(0, 120, 0, 0),
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                "AI Monitor · Command Hub"
+            )
+            # Footer rule
+            p.setPen(QColor("#1e2e5c"))
+            p.drawLine(40, 220, 500, 220)
+        finally:
+            p.end()
+        splash = QSplashScreen(pix, Qt.WindowType.WindowStaysOnTopHint)
+        splash.setStyleSheet("QSplashScreen { color:#7ee787; }")
+        return splash
+    except Exception:
+        return None
+
+
 class AIMonitorApp:
+    """Three-layer boot stabilizer:
+      Layer 1 — BOOT PROGRAM   — QApplication + splash + import prewarm thread.
+      Layer 2 — LOAD CONTENTS  — Dashboard shell (header, empty tabs widget,
+                                 status bar) shown immediately. Tray + dock built.
+      Layer 3 — LOAD ROOMS     — Each tab body built via staggered QTimer
+                                 (40ms apart). Splash closes when last room ready.
+    """
+
     def __init__(self):
+        # ── Layer 1: BOOT PROGRAM ──────────────────────────────────────────
+        try:
+            from core.profiler import mark as _bm
+            from core.state_manager import transition_to as _ts, SystemState as _S
+            _bm("imports_done")
+            _ts(_S.VALIDATING, reason="qapplication_construct")
+        except Exception:
+            pass
         self.app = QApplication(sys.argv)
-        self.app.setApplicationName("AI Monitor")
+        self.app.setApplicationName("DBOMBLOCAL")
         self.app.setQuitOnLastWindowClosed(False)
+        try:
+            _bm("qapp_ready")
+            _ts(_S.LOADING_MODULES, reason="single_instance_lock_pending")
+        except Exception:
+            pass
+
+        # Single-instance lock — prevents the double-AIMonitor.exe race that
+        # otherwise stomps on the palace locks and the comtypes cache.
+        self._single_lock = _acquire_single_instance_lock()
+        if self._single_lock is None:
+            # Another instance is already running. Surface it and exit.
+            try:
+                from PyQt6.QtWidgets import QMessageBox as _QMB
+                _QMB.information(
+                    None, "DBOMBLOCAL",
+                    "DBOMBLOCAL is already running. Bringing the existing window to front."
+                )
+            except Exception: pass
+            sys.exit(0)
+
+        # Splash — shows immediately so the user gets feedback while the
+        # heavy import waterfall + tab construction runs.
+        self._splash = _make_boot_splash()
+        if self._splash is not None:
+            self._splash.show()
+            self.app.processEvents()
+            self._splash_say("Booting…")
 
         for d in [HISTORY_DIR, SANDBOX_DIR, PROPOSALS_DIR]:
             d.mkdir(parents=True, exist_ok=True)
 
+        # Pre-warm heavy imports on a background thread. Load-shapes the
+        # mempalace / chromadb / onnxruntime / sentence_transformers / etc.
+        # imports OFF the lazy-tab-builder main-thread path. Phase A v2
+        # incorrectly deferred this to AFTER on_ready, which then forced
+        # the lazy tab builders to do cold imports synchronously on the
+        # main thread — that net regressed boot time.
+        self._prewarm_done = False
+        def _prewarm():
+            for mod in ("mempalace", "mempalace.miner", "mempalace.searcher",
+                        "mempalace_bridge", "pyramid_compartment",
+                        "agent_chatroom", "perceptual_engine"):
+                try:
+                    __import__(mod)
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
+            self._prewarm_done = True
+            try:
+                from core.profiler import mark as _bm
+                _bm("prewarm_complete")
+            except Exception:
+                pass
+        threading.Thread(target=_prewarm, name="ImportPrewarm", daemon=True).start()
+        self._splash_say("Pre-warming imports…")
+        self.app.processEvents()
+
+        # ── Layer 2: LOAD CONTENTS ─────────────────────────────────────────
+        self._splash_say("Building command hub…")
+        self.app.processEvents()
         self.dashboard       = HistoryDashboard(self)
-        self.floating_widget = FloatingWidget(self)
+        try:
+            from core.profiler import mark as _bm
+            _bm("dashboard_constructed")
+        except Exception:
+            _bm = lambda *_a, **_k: None
+
+        # PHASE A — Phase 1: defer FloatingWidget construction.
+        # Was previously synchronous here; the dock isn't visible until the
+        # user opens it, so building it at +500ms into the event loop is
+        # invisible to perceived boot time. self.floating_widget stays None
+        # until _build_floating_widget_deferred runs.
+        self.floating_widget = None
+        QTimer.singleShot(500, self._build_floating_widget_deferred)
 
         self.setup_tray()
+        _bm("tray_setup_done")
 
+        # PHASE A — Phase 2: defer observer + native-bridge threads.
+        # These do filesystem scanning / COM init which competes with the
+        # main thread during boot. Defer to +750ms so the event loop reaches
+        # READY first.
         self.observer_running = True
-        self.observer_thread  = threading.Thread(target=self.run_observer,       daemon=True)
-        self.bridge_thread    = threading.Thread(target=self.run_native_bridge,  daemon=True)
-        self.observer_thread.start()
-        self.bridge_thread.start()
+        QTimer.singleShot(750, self._start_observer_threads_deferred)
 
+        # ── Layer 3: LOAD ROOMS (kicked from _first_show) ─────────────────
+        self._splash_say("Loading rooms…")
+        self.app.processEvents()
         QTimer.singleShot(0, self._first_show)
         # Refresh status every 10s to catch daemon notifications
         self._status_timer = QTimer()
         self._status_timer.timeout.connect(self.dashboard._refresh_status)
         self._status_timer.start(10000)
+        # Splash failsafe: 30s ceiling. If Layer-3 stalls, kill the splash
+        # anyway so the user never sees it stuck. _on_rooms_loaded() is
+        # idempotent.
+        QTimer.singleShot(30000, lambda: self._on_rooms_loaded() if getattr(self, "_splash", None) else None)
+
+    def _splash_say(self, msg: str):
+        if getattr(self, "_splash", None) is None: return
+        try:
+            self._splash.showMessage(
+                f"AI MONITOR\n\n{msg}",
+                Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom,
+                QColor("#7ee787"),
+            )
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
+
+    def _on_rooms_loaded(self):
+        """Called by HistoryDashboard when Layer 3 finishes."""
+        if getattr(self, "_splash", None) is not None:
+            try:
+                self._splash.finish(self.dashboard)
+            except Exception: pass
+            self._splash = None
 
     def _first_show(self):
         global _APP_INSTANCE
@@ -5569,6 +8296,39 @@ class AIMonitorApp:
         self.dashboard.show()
         self.dashboard.raise_()
         self.dashboard.activateWindow()
+        # PHASE A v3: services are deferred 2s after first paint so the user
+        # gets an interactive window before background daemons/threads spawn.
+        # This eliminates the "program not responding" feeling that the user
+        # reported during boot.
+        QTimer.singleShot(2000, self._deferred_services)
+
+    def _deferred_services(self):
+        """Phase A v3: all heavy service starts kicked AFTER first paint.
+
+        WON daemon, Ground server, Pulse engine, clipboard Harvester,
+        Strategy Matrix, Memory Manager cleanup, and the service registry
+        all spawn here rather than in _first_show. Idempotent — guard via
+        self._services_started.
+        """
+        if getattr(self, "_services_started", False):
+            return
+        self._services_started = True
+        try:
+            from core.profiler import mark as _bm
+            _bm("deferred_services_start")
+        except Exception:
+            _bm = lambda *_a, **_k: None
+
+        # ── Stage-2 service registry (optional; safe to fail) ────
+        try:
+            from core.services import (
+                get_registry, PulseService, MemoryMaintenanceService,
+                HarvesterService,
+            )
+            self._service_registry = get_registry()
+        except Exception as exc:
+            self._service_registry = None
+            startup_log(f"core.services unavailable (registry disabled): {exc}")
 
         # ── Memory manager cleanup ────────────────────────────
         if MM_OK:
@@ -5576,6 +8336,10 @@ class AIMonitorApp:
                 mem_path = str(_WON_ROOT / "data" / "won_memory.db")
                 _mm.schedule_cleanup(mem_path, interval_hours=24)
                 startup_log("memory_manager cleanup scheduled")
+                if self._service_registry is not None:
+                    svc = MemoryMaintenanceService(interval_hours=24)
+                    svc.adopt()
+                    self._service_registry.register(svc)
             except Exception as exc:
                 startup_log(f"memory_manager start failed: {exc}")
 
@@ -5614,6 +8378,10 @@ class AIMonitorApp:
                     lambda ev: QTimer.singleShot(0, lambda e=ev: self._on_pulse_event(e))
                 )
                 startup_log("pulse_engine started")
+                if self._service_registry is not None:
+                    svc = PulseService()
+                    svc.adopt()
+                    self._service_registry.register(svc)
             except Exception as exc:
                 startup_log(f"pulse_engine failed: {exc}")
 
@@ -5622,6 +8390,10 @@ class AIMonitorApp:
             try:
                 _harvest.start_clipboard_harvester(interval_s=30.0)
                 startup_log("harvester started")
+                if self._service_registry is not None:
+                    svc = HarvesterService(interval_s=30.0)
+                    svc.adopt()
+                    self._service_registry.register(svc)
             except Exception as exc:
                 startup_log(f"harvester failed: {exc}")
 
@@ -5632,6 +8404,50 @@ class AIMonitorApp:
                 startup_log("strategy matrix initialized")
             except Exception as exc:
                 startup_log(f"strategy failed: {exc}")
+
+        _bm("deferred_services_done")
+
+    # ── Phase A deferred-boot helpers ──────────────────────────────────────
+
+    def _build_floating_widget_deferred(self):
+        """Construct FloatingWidget AFTER the dashboard is interactive.
+
+        Called via QTimer.singleShot(500, ...) from __init__. Idempotent:
+        if a previous tick already built it, this is a no-op.
+        """
+        if getattr(self, "floating_widget", None) is not None:
+            return
+        try:
+            from core.profiler import mark as _bm
+            _bm("floating_widget_started")
+            self.floating_widget = FloatingWidget(self)
+            _bm("floating_widget_ready")
+        except Exception as exc:
+            _log.warning("FloatingWidget deferred construction failed: %s", exc)
+            self.floating_widget = None
+
+    def _start_observer_threads_deferred(self):
+        """Start observer + native-bridge background threads AFTER first paint.
+
+        Called via QTimer.singleShot(750, ...) from __init__. Idempotent.
+        """
+        if getattr(self, "_observer_threads_started", False):
+            return
+        self._observer_threads_started = True
+        try:
+            from core.profiler import mark as _bm
+            _bm("observer_threads_started")
+        except Exception:
+            pass
+        try:
+            self.observer_thread = threading.Thread(
+                target=self.run_observer, name="Observer", daemon=True)
+            self.bridge_thread = threading.Thread(
+                target=self.run_native_bridge, name="NativeBridge", daemon=True)
+            self.observer_thread.start()
+            self.bridge_thread.start()
+        except Exception as exc:
+            _log.warning("observer/bridge thread launch failed: %s", exc)
 
     def setup_tray(self):
         self.tray_icon = None
@@ -5702,12 +8518,18 @@ class AIMonitorApp:
             return
         while self.observer_running:
             try:
+                fw = getattr(self, "floating_widget", None)
+                if fw is None:
+                    # Phase A deferred-boot: floating_widget may not yet be
+                    # constructed during the first observer tick. Skip.
+                    time.sleep(1)
+                    continue
                 el = auto.GetFocusedControl()
                 if el and "Edit" in (el.ControlTypeName or ""):
                     r = el.BoundingRectangle
-                    self.floating_widget.request_show.emit(r.right, r.top, "")
+                    fw.request_show.emit(r.right, r.top, "")
                 else:
-                    self.floating_widget.request_hide.emit()
+                    fw.request_hide.emit()
             except Exception: pass
             time.sleep(1)
 
@@ -5749,16 +8571,24 @@ class AIMonitorApp:
         if PULSE_OK:
             try:
                 _pulse.stop()
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
         if HARVEST_OK:
             try:
                 _harvest.stop_clipboard_harvester()
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
         self.app.quit()
 
     def run(self):
+        try:
+            from core.lifecycle import on_ready, on_shutdown
+            on_ready()
+            self.app.aboutToQuit.connect(on_shutdown)
+        except Exception as e:
+            logging.getLogger("stratum.lifecycle").debug(
+                "lifecycle hooks unavailable: %s", e
+            )
         sys.exit(self.app.exec())
 
 

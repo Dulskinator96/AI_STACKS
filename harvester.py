@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Optional
 
 import db
+import logging
+_log = logging.getLogger(__name__)
 
 OLLAMA_URL    = "http://localhost:11434/api/generate"
 DEFAULT_MODEL = os.environ.get("WON_MODEL", "mistral:latest")
@@ -108,8 +110,8 @@ def compress_semantic(content: str, max_output: int = 500) -> str:
         compressed = r.json().get("response", "").strip()
         if compressed and len(compressed) < len(content) * 0.7:
             return compressed
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f'caught exception: {e}')
 
     sentences = re.split(r'(?<=[.!?])\s+', content)
     result, chars = [], 0
@@ -176,8 +178,8 @@ def capture_file(path: Path, source: str = "file") -> Optional[dict]:
         text = path.read_text(encoding="utf-8", errors="ignore")
         if len(text) > 100 and is_ai_content(text):
             return capture(text, source=f"file:{path.name}")
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f'caught exception: {e}')
     return None
 
 
@@ -208,8 +210,8 @@ class ClipboardHarvester:
                     if is_ai_content(clip):
                         capture(clip, source="clipboard")
                     self._last = clip
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
     def _read_clipboard(self) -> str:
         try:
@@ -217,10 +219,11 @@ class ClipboardHarvester:
             result = subprocess.run(
                 ["powershell", "-Command", "Get-Clipboard"],
                 capture_output=True, text=True, timeout=3,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
             )
             return result.stdout.strip()
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
         try:
             import pyperclip
             return pyperclip.paste()
@@ -294,8 +297,8 @@ def _index_to_won(content: str, source: str, content_type: str):
         import pipeline as _p
         _p.contribute(content, source=source,
                       mode=content_type, tags=["harvested", source])
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f'caught exception: {e}')
 
 
 # ── Singleton Clipboard Harvester ─────────────────────────────────────────────

@@ -17,6 +17,8 @@ import re
 import json
 from datetime import datetime
 from pathlib import Path
+import logging
+_log = logging.getLogger(__name__)
 
 # ── Path bootstrap ─────────────────────────────────────────────────────────────
 _HERE     = Path(__file__).resolve().parent
@@ -101,7 +103,7 @@ def contribute(
         state["sources"][source] = state["sources"].get(source, 0) + 1
         _save_ground(state)
     except Exception as exc:
-        print(f"[Perception] ground.json write — {exc}", file=sys.stderr)
+        _log.warning(f"[Perception] ground.json write — {exc}")
 
     # 2. WON SQLite
     try:
@@ -114,7 +116,7 @@ def contribute(
                 tags=(tags or []) + [source],
             )
     except Exception as exc:
-        print(f"[Perception] WON store — {exc}", file=sys.stderr)
+        _log.warning(f"[Perception] WON store — {exc}")
 
     # 3. MemPalace
     try:
@@ -134,13 +136,13 @@ def contribute(
             finally:
                 _os.unlink(tmp_path)
     except Exception as exc:
-        print(f"[Perception] MemPalace contribute — {exc}", file=sys.stderr)
+        _log.warning(f"[Perception] MemPalace contribute — {exc}")
 
     # 4. Obsidian Ground note
     try:
         _write_ground_note(source, mode, content, ts)
     except Exception as exc:
-        print(f"[Perception] Obsidian ground — {exc}", file=sys.stderr)
+        _log.warning(f"[Perception] Obsidian ground — {exc}")
 
     return True
 
@@ -164,8 +166,8 @@ def get_ground_state(max_chars: int = 1200) -> str:
                 src      = SOURCES.get(c["source"], c["source"])
                 preview  = c["preview"][:120].replace("\n", " ")
                 parts.append(f"[{ts_short}] {src} ({c['mode']}): {preview}")
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f'caught exception: {e}')
 
     # Compressed context from last sessions
     if _CONTEXT_FILE.exists():
@@ -176,8 +178,8 @@ def get_ground_state(max_chars: int = 1200) -> str:
             if blocks:
                 parts.append("\n=== LAST SESSION CONTEXT ===")
                 parts.append(blocks[-1][:600])
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     # Source activity summary
     try:
@@ -189,8 +191,8 @@ def get_ground_state(max_chars: int = 1200) -> str:
                 for k, v in sorted(srcs.items(), key=lambda x: -x[1])
             )
             parts.append(f"\n=== GROUND ACTIVITY: {summary} ===")
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f'caught exception: {e}')
 
     result = "\n".join(parts)
     return result[:max_chars]
@@ -205,7 +207,7 @@ def search(query: str, limit: int = 8) -> list[dict]:
         import pipeline as p
         return p.search(query, limit=limit)
     except Exception as exc:
-        print(f"[Perception] search — {exc}", file=sys.stderr)
+        _log.warning(f"[Perception] search — {exc}")
         return []
 
 

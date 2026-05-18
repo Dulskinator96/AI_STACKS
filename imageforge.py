@@ -21,8 +21,37 @@ import truth_layer
 
 _log = logging.getLogger("stratum.imageforge")
 
+
 class ImageForge:
-...
+    DEFAULT_NEGATIVE = synthesis.SDClient.NEGATIVE_PROMPT
+
+    def __init__(self):
+        self.use_sd = True
+        try:
+            self.sd_available = synthesis.SDClient.is_available()
+        except Exception as exc:
+            _log.warning(f"SDClient availability probe failed: {exc}")
+            self.sd_available = False
+
+    def generate(
+        self,
+        prompt: str,
+        style_tags: Optional[str] = None,
+        width: int = 512,
+        height: int = 512,
+        seed: int = -1,
+    ) -> Dict[str, Any]:
+        full_prompt = f"{prompt}, {style_tags}" if style_tags else prompt
+        spec = {
+            "prompt":     prompt,
+            "style_tags": style_tags,
+            "width":      width,
+            "height":     height,
+            "seed":       seed,
+        }
+        output_path: Optional[Path] = None
+        mode = "PROMPT_FALLBACK"
+
         if self.use_sd and self.sd_available:
             try:
                 output_path = synthesis.SDClient.txt2img(

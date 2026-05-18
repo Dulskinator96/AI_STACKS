@@ -9,6 +9,8 @@ import struct
 import os
 from datetime import datetime
 from pathlib import Path
+import logging
+_log = logging.getLogger(__name__)
 
 # ── Path setup: parent of native/ is the monitor root (repo or Documents\AI_Monitor)
 _NATIVE_DIR = Path(__file__).resolve().parent
@@ -142,8 +144,8 @@ def main():
             if PIPELINE_OK:
                 try:
                     ctx = won_pipeline.get_context_snippet()
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
             send_message({"status": "ok", "context": ctx})
 
         else:

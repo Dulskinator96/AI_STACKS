@@ -32,6 +32,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from pyramid_parser import ParseResult, parse_file as _parse_file
+import logging
+_log = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -484,8 +486,8 @@ class PyramidIndex:
                                 self._on_change(str(p))
                             except Exception:
                                 pass
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
             self._stop_event.wait(interval_s)
 
 

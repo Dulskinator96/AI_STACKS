@@ -24,6 +24,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote_plus
+import logging
+_log = logging.getLogger(__name__)
 
 SAVE_DIR      = Path.home() / "Documents" / "AI_Monitor"
 CACHE_FILE    = SAVE_DIR / "validation_cache.json"
@@ -54,8 +56,8 @@ class _ValidationCache:
                 now = time.time()
                 self._data = {k: v for k, v in raw.items()
                               if now - v.get("ts", 0) < CACHE_TTL}
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     def _flush(self):
         try:
@@ -63,8 +65,8 @@ class _ValidationCache:
             CACHE_FILE.write_text(
                 json.dumps(self._data, ensure_ascii=False), encoding="utf-8"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     def get(self, key: str) -> Optional[dict]:
         with self._lock:
@@ -179,8 +181,8 @@ def _local_verify(question: str, response: str, model: str = DEFAULT_MODEL) -> d
             answer = r2.json().get("response", "").strip()
             if "NOT ADDRESSED" in answer.upper() or "unclear" in answer.lower():
                 issues.append({"question": q, "finding": answer})
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
 
     return {"verified": len(issues) == 0, "issues": issues, "questions": questions}
 
@@ -312,8 +314,8 @@ class WikipediaValidator:
                 extract = data.get("extract", "")[:600]
                 _cache.set(cache_key, {"summary": extract})
                 return extract
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
         return None
 
     def verify_entity(self, entity: str) -> dict:

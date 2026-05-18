@@ -67,6 +67,7 @@ class DolphinGraphicsAdapter:
                     [self.dolphin_exe, "--exec", self.iso_path],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
                 )
                 self._started_at = time.time()
                 _log.info("DolphinGraphicsAdapter started pid=%s", self._proc.pid)

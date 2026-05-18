@@ -223,12 +223,14 @@ class SandboxRoom(RoomBase):
                 proc = subprocess.run(
                     [sys.executable, "-c", src],
                     capture_output=True, text=True, timeout=self.timeout,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
                 )
             elif text.startswith("shell:"):
                 cmd = text[len("shell:"):].strip()
                 proc = subprocess.run(
                     cmd, shell=True, capture_output=True, text=True,
                     timeout=self.timeout,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
                 )
             else:
                 task.output = ("SandboxRoom requires prefix: 'python:' or 'shell:'. "
@@ -611,7 +613,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.recall:
         rows = pc.memory.recall(args.recall)
-        print(json.dumps(rows, indent=2))
+        _log.debug(json.dumps(rows, indent=2))
         return 0
 
     if not args.input:
@@ -621,9 +623,9 @@ def main(argv: list[str] | None = None) -> int:
             else pc.route(args.input))
 
     if args.json:
-        print(json.dumps(task.to_dict(), indent=2))
+        _log.debug(json.dumps(task.to_dict(), indent=2))
     else:
-        print(_format_task(task))
+        _log.debug(_format_task(task))
     return 0
 
 

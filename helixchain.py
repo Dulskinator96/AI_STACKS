@@ -522,6 +522,7 @@ def test_runner(root: str | Path, scan: ProjectScan | None = None) -> dict[str, 
     proc = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "--tb=line", str(root_path)],
         capture_output=True, text=True, timeout=600,
+        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
     )
     output = proc.stdout + proc.stderr
     failures: list[dict[str, str]] = []
@@ -592,19 +593,19 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.report:
         findings = constraint_report(scan)
-        print(json.dumps(findings, indent=2))
+        _log.debug(json.dumps(findings, indent=2))
         return 0
     if args.sync:
         n = sync_to_detbank(scan)
-        print(f"DETBANK sync: {n} fragments written")
+        _log.debug(f"DETBANK sync: {n} fragments written")
         return 0
     if args.json:
-        print(json.dumps(_scan_to_jsonable(scan), indent=2, default=str))
+        _log.debug(json.dumps(_scan_to_jsonable(scan), indent=2, default=str))
         return 0
 
     if not scan.callgraph and args.callgraph:
         build_callgraph(scan)
-    print(anchorforge(scan, with_callgraph=args.callgraph))
+    _log.debug(anchorforge(scan, with_callgraph=args.callgraph))
     return 0
 
 

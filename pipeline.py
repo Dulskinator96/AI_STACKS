@@ -23,6 +23,8 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
+import logging
+_log = logging.getLogger(__name__)
 
 # ── Locate roots ───────────────────────────────────────────────────────────────
 _HERE = Path(__file__).resolve().parent
@@ -81,7 +83,7 @@ def _load_won() -> bool:
         _won_ready = True
         return True
     except Exception as exc:
-        print(f"[Pipeline] WON core unavailable — {exc}", file=sys.stderr)
+        _log.warning(f"[Pipeline] WON core unavailable — {exc}")
         return False
 
 
@@ -98,8 +100,10 @@ def _load_palace() -> bool:
         import warnings, logging
         logging.getLogger("opentelemetry").setLevel(logging.CRITICAL)
         warnings.filterwarnings("ignore", category=DeprecationWarning)
-        from mempalace.miner import mine_project        # noqa: F401
-        from mempalace.searcher import search_memories  # noqa: F401
+        # mempalace v3.x renamed mine_project → mine. Confirm both entry
+        # points resolve before declaring the palace ready.
+        from mempalace.miner import mine                 # noqa: F401
+        from mempalace.searcher import search_memories   # noqa: F401
         _palace_ready = True
         return True
     except Exception:
@@ -126,8 +130,8 @@ def _read_build_files(max_files: int = 8) -> dict[str, str]:
                     and not f.name.startswith(".")):
                 try:
                     files[f.name] = f.read_text(encoding="utf-8", errors="ignore")[:500]
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
     return files
 
 
@@ -208,7 +212,7 @@ def search(query: str, limit: int = 10) -> list[dict]:
                     "source":      "mempalace",
                 })
         except Exception as exc:
-            print(f"[Pipeline] MemPalace search — {exc}", file=sys.stderr)
+            _log.warning(f"[Pipeline] MemPalace search — {exc}")
 
     if _load_won():
         try:
@@ -223,7 +227,7 @@ def search(query: str, limit: int = 10) -> list[dict]:
                         "source":      "won",
                     })
         except Exception as exc:
-            print(f"[Pipeline] WON search — {exc}", file=sys.stderr)
+            _log.warning(f"[Pipeline] WON search — {exc}")
 
     results.sort(key=lambda x: x["similarity"], reverse=True)
     return results[:limit]
@@ -240,8 +244,8 @@ def stats() -> dict:
     if _load_won():
         try:
             base = _memory.session_summary()
-        except Exception:
-            pass
+        except Exception as e:
+            _log.warning(f'caught exception: {e}')
     base["palace_available"] = _load_palace()
     base["palace_path"]      = str(_PALACE_PATH)
     return base
@@ -279,7 +283,7 @@ def _route_won(platform: str, summary: str) -> bool:
         )
         return True
     except Exception as exc:
-        print(f"[Pipeline] WON store — {exc}", file=sys.stderr)
+        _log.warning(f"[Pipeline] WON store — {exc}")
         return False
 
 
@@ -287,26 +291,27 @@ def _route_palace(platform, summary, session_id, ts_str, msg_count) -> bool:
     if not _load_palace():
         return False
     try:
-        from mempalace.miner import mine_project
+        from mempalace.miner import mine
         transcript = (
             f"# {platform} Capture — {session_id}\n"
             f"*{ts_str} · {msg_count} messages*\n\n"
             f"{summary}\n"
         )
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".md",
-            prefix=f"{session_id}_",
-            delete=False, encoding="utf-8",
-        ) as tmp:
-            tmp.write(transcript)
-            tmp_path = tmp.name
-        try:
-            mine_project(path=tmp_path, palace_path=str(_PALACE_PATH), wing=_PALACE_WING)
-        finally:
-            os.unlink(tmp_path)
+        # v3.x mine() takes a project_dir (not a single file path). Write
+        # the transcript into a one-file temp directory so the corpus walk
+        # picks it up, then let the directory clean up automatically.
+        with tempfile.TemporaryDirectory(prefix=f"mp_{session_id}_") as tmpdir:
+            tmp_file = Path(tmpdir) / f"{session_id}.md"
+            tmp_file.write_text(transcript, encoding="utf-8")
+            mine(
+                project_dir=tmpdir,
+                palace_path=str(_PALACE_PATH),
+                wing_override=_PALACE_WING,
+                agent="ai-monitor",
+            )
         return True
     except Exception as exc:
-        print(f"[Pipeline] MemPalace mine — {exc}", file=sys.stderr)
+        _log.warning(f"[Pipeline] MemPalace mine — {exc}")
         return False
 
 
@@ -328,7 +333,7 @@ def _route_obsidian(
         from note_builder import build_history_note, build_brief_note, _compress_for_context
         from note_builder import _detect_topics, _parse_exchanges
     except Exception as exc:
-        print(f"[Pipeline] note_builder unavailable — {exc}", file=sys.stderr)
+        _log.warning(f"[Pipeline] note_builder unavailable — {exc}")
         return None, None, False
 
     safe_plat  = platform.replace(" ", "_")
@@ -342,7 +347,7 @@ def _route_obsidian(
         _obsidian._write(history_rel, history_md)
         history_path = str(Path(_obsidian.vault_path) / history_rel)
     except Exception as exc:
-        print(f"[Pipeline] Obsidian history write — {exc}", file=sys.stderr)
+        _log.warning(f"[Pipeline] Obsidian history write — {exc}")
 
     # 2. Session Brief note ────────────────────────────────────────────────────
     brief_md = build_brief_note(
@@ -368,7 +373,7 @@ def _route_obsidian(
             tags=["brief", "capture", platform.lower().replace(" ", "-")],
         )
     except Exception as exc:
-        print(f"[Pipeline] Obsidian brief write — {exc}", file=sys.stderr)
+        _log.warning(f"[Pipeline] Obsidian brief write — {exc}")
 
     # 3. Update context.txt with compressed brief ──────────────────────────────
     ctx_ok = False
@@ -379,7 +384,7 @@ def _route_obsidian(
         _update_context_file(compressed, session_id, platform)
         ctx_ok = True
     except Exception as exc:
-        print(f"[Pipeline] context.txt update — {exc}", file=sys.stderr)
+        _log.warning(f"[Pipeline] context.txt update — {exc}")
 
     return history_path, brief_path, ctx_ok
 
@@ -439,7 +444,7 @@ def contribute(content: str, source: str = "pipeline", mode: str = "exchange", t
                     tags=(tags or []) + [source],
                 )
                 return True
-            except Exception:
-                pass
-        print(f"[Pipeline] contribute() — {exc}", file=sys.stderr)
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
+        _log.warning(f"[Pipeline] contribute() — {exc}")
         return False

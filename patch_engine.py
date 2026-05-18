@@ -1,7 +1,7 @@
 
 import os
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 from pathlib import Path
 
@@ -15,7 +15,96 @@ _log = logging.getLogger(__name__)
 # =========================
 # PATCH CORE SCHEMA OBJECTS
 # =========================
-...
+
+import re
+import uuid
+
+
+@dataclass
+class Patch:
+    """Structured patch produced by parse_patch_response."""
+    diff:     str
+    mode:     str
+    risk:     float
+    metadata: dict
+
+
+def parse_patch_response(raw_output: str) -> Optional[Patch]:
+    """Parse CodeForge block format. Returns None on malformed output.
+
+    Expected format:
+        <<< OLD_CODE
+        ...exact existing snippet...
+        >>> NEW_CODE
+        ...replacement snippet...
+        <<< END
+
+    Risk heuristic: hunk length + multi-line span. Conservative bias.
+    """
+    if not isinstance(raw_output, str) or not raw_output:
+        return None
+    if "<<< UNRESOLVED >>>" in raw_output:
+        return None
+    if "<<< OLD_CODE" not in raw_output or ">>> NEW_CODE" not in raw_output:
+        return None
+    if "<<< END" not in raw_output:
+        return None
+    # Round-trip: ensure both markers present in correct order
+    old_idx = raw_output.find("<<< OLD_CODE")
+    new_idx = raw_output.find(">>> NEW_CODE")
+    end_idx = raw_output.find("<<< END")
+    if not (old_idx < new_idx < end_idx):
+        return None
+
+    # Extract old + new
+    old_match = re.search(r"<<< OLD_CODE\n(.*?)\n>>> NEW_CODE",
+                          raw_output, re.DOTALL)
+    new_match = re.search(r">>> NEW_CODE\n(.*?)\n<<< END",
+                          raw_output, re.DOTALL)
+    if not (old_match and new_match):
+        return None
+    old_code = old_match.group(1)
+    new_code = new_match.group(1)
+    if not old_code.strip():
+        return None
+
+    # Risk heuristic: longer hunks + multi-line span = higher risk
+    line_span = max(old_code.count("\n"), new_code.count("\n")) + 1
+    char_delta = abs(len(new_code) - len(old_code))
+    risk = min(0.85, 0.10 + 0.05 * line_span + 0.0005 * char_delta)
+    if line_span >= 25 or char_delta >= 2000:
+        risk = max(risk, 0.90)  # auto-bumps to manual gate
+
+    return Patch(
+        diff=raw_output,
+        mode="codeforge_block",
+        risk=round(risk, 3),
+        metadata={"id": str(uuid.uuid4()), "line_span": line_span,
+                   "char_delta": char_delta},
+    )
+
+
+def validate_diff(file_content: str, diff: str) -> bool:
+    """Structural check before patch application.
+
+    Ensures: diff is non-empty, contains both markers, and the OLD_CODE
+    snippet actually exists in file_content (substring match).
+    """
+    if not isinstance(diff, str) or not diff:
+        return False
+    if "<<< OLD_CODE" not in diff or ">>> NEW_CODE" not in diff:
+        return False
+    old_match = re.search(r"<<< OLD_CODE\n(.*?)\n>>> NEW_CODE",
+                          diff, re.DOTALL)
+    if not old_match:
+        return False
+    old_code = old_match.group(1).strip()
+    if not old_code:
+        return False
+    # Must be present in the actual file content
+    return old_code in file_content
+
+
 # =========================
 # CORE PATCH ENGINE
 # =========================
@@ -112,7 +201,11 @@ def build_patch_packet(file_path, intent, context, file_content):
 
 def apply_patch(file_path, diff):
     """
-    Applies a patch block (OLD_CODE -> NEW_CODE) or unified diff.
+    Applies a CodeForge OLD_CODE -> NEW_CODE block.
+
+    SAFETY: requires the OLD_CODE to occur EXACTLY ONCE in the file (verbatim,
+    including indentation). Refuses ambiguous matches (count != 1) to avoid
+    accidental substring corruption of docstrings/comments.
     """
     try:
         path = Path(file_path)
@@ -121,24 +214,40 @@ def apply_patch(file_path, diff):
 
         content = path.read_text(encoding="utf-8")
 
-        # Support for CodeForge block format
-        if "<<< OLD_CODE" in diff and ">>> NEW_CODE" in diff:
-            import re
-            old_match = re.search(r"<<< OLD_CODE\n(.*?)\n>>> NEW_CODE", diff, re.DOTALL)
-            new_match = re.search(r">>> NEW_CODE\n(.*?)\n<<< END", diff, re.DOTALL)
+        if not ("<<< OLD_CODE" in diff and ">>> NEW_CODE" in diff):
+            return False
 
-            if old_match and new_match:
-                old_code = old_match.group(1).strip()
-                new_code = new_match.group(1).strip()
+        import re
+        old_match = re.search(r"<<< OLD_CODE\n(.*?)\n>>> NEW_CODE",
+                              diff, re.DOTALL)
+        new_match = re.search(r">>> NEW_CODE\n(.*?)\n<<< END",
+                              diff, re.DOTALL)
+        if not (old_match and new_match):
+            return False
 
-                if old_code in content:
-                    new_content = content.replace(old_code, new_code)
-                    path.write_text(new_content, encoding="utf-8")
-                    return True
+        # Preserve EXACT old/new (NO strip) -- indentation must match.
+        old_code = old_match.group(1)
+        new_code = new_match.group(1)
 
-        # Fallback to simple replace if diff is just the new content or a part of it
-        # (This is risky but fits the 'deterministic modification' goal)
-        return False
+        # Empty or whitespace-only OLD_CODE is forbidden (too loose)
+        if not old_code or not old_code.strip():
+            return False
+
+        match_count = content.count(old_code)
+        if match_count == 0:
+            _log.warning("apply_patch: OLD_CODE not found verbatim in %s",
+                         file_path)
+            return False
+        if match_count > 1:
+            _log.warning(
+                "apply_patch: OLD_CODE matches %d sites in %s -- ambiguous, "
+                "refusing", match_count, file_path,
+            )
+            return False
+
+        new_content = content.replace(old_code, new_code, 1)
+        path.write_text(new_content, encoding="utf-8")
+        return True
     except Exception as exc:
         _log.error(f"apply_patch failed: {exc}")
         return False

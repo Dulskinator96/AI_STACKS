@@ -24,7 +24,6 @@ import math
 import random
 import re
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -66,6 +65,8 @@ from PyQt6.QtWidgets import (
 
 from pyramid_index import PyramidIndex, get_index
 from pyramid_mind import PyramidMind, CodeAnswer, DisclosureLevel
+import logging
+_log = logging.getLogger(__name__)
 
 # ── Palette — Pre-Dawn Nautical Twilight ──────────────────────────────────────
 # Grounded in real source references:
@@ -233,6 +234,10 @@ class _Node:
 
 
 class GraphCanvas(QWidget):
+    """Graph of project files. Nodes are stationary (no physics jitter); an
+    'active' node — one currently being processed by a Pyramid agent / tool —
+    pulses with a colored glow ring. State per node: idle → active → idle."""
+
     node_clicked = pyqtSignal(str)
 
     def __init__(self, parent=None):
@@ -243,10 +248,25 @@ class GraphCanvas(QWidget):
         self._hovered:  Optional[str]         = None
         self._selected: Optional[str]         = None
         self._highlighted: set[str]           = set()
+        self._active:   set[str]              = set()   # node IDs mid-tool
+        self._glow_phase = 0.0                          # pulse animation [0,1)
         self._timer     = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self._timer.start(50)
         self.setMouseTracking(True)
+
+    # ── Public API ──────────────────────────────────────────────────────────
+    def set_active(self, node_id: str, active: bool = True) -> None:
+        """Mark a node as currently mid-tool-execution. Glows while active."""
+        if active:
+            self._active.add(node_id)
+        else:
+            self._active.discard(node_id)
+        self.update()
+
+    def clear_active(self) -> None:
+        self._active.clear()
+        self.update()
 
     def set_graph(self, adjacency: dict[str, list[str]]) -> None:
         all_ids: set[str] = set()
@@ -266,7 +286,9 @@ class GraphCanvas(QWidget):
                 self._nodes[nid] = _Node(nid)
         self._edges = [(s, d) for s, d in edges
                        if s in self._nodes and d in self._nodes][:120]
-        if not existing:
+        # Re-arrange whenever the node set changes — nodes are stationary,
+        # so we want a deterministic layout instead of random init positions.
+        if existing != set(self._nodes.keys()):
             self._arrange_circle()
         self.update()
 
@@ -284,39 +306,14 @@ class GraphCanvas(QWidget):
             node.y = cy + r * math.sin(angle)
 
     def _tick(self) -> None:
-        nodes = list(self._nodes.values())
-        if not nodes:
+        # Nodes are stationary — _arrange_circle() places them once and they
+        # stay there (no jiggle). Only animation tick is the glow pulse for
+        # nodes in the 'active' state.
+        if not self._nodes:
             return
-        n  = len(nodes)
-        cx = self.width() / 2
-        cy = self.height() / 2
-        k  = math.sqrt(self.width() * self.height() / max(n, 1)) * 0.52
-        for i in range(n):
-            for j in range(i + 1, n):
-                a, b = nodes[i], nodes[j]
-                dx, dy = a.x - b.x, a.y - b.y
-                dist  = max(math.hypot(dx, dy), 0.5)
-                force = k * k / dist
-                fx, fy = force * dx / dist, force * dy / dist
-                a.vx += fx; a.vy += fy
-                b.vx -= fx; b.vy -= fy
-        for s_id, d_id in self._edges:
-            if s_id not in self._nodes or d_id not in self._nodes:
-                continue
-            a, b = self._nodes[s_id], self._nodes[d_id]
-            dx, dy = b.x - a.x, b.y - a.y
-            dist  = max(math.hypot(dx, dy), 0.5)
-            force = dist * dist / k
-            fx, fy = force * dx / dist, force * dy / dist
-            a.vx += fx; a.vy += fy
-            b.vx -= fx; b.vy -= fy
-        for node in nodes:
-            node.vx += (cx - node.x) * 0.003
-            node.vy += (cy - node.y) * 0.003
-            node.vx *= 0.84; node.vy *= 0.84
-            node.x = max(32, min(self.width()  - 32, node.x + node.vx))
-            node.y = max(32, min(self.height() - 32, node.y + node.vy))
-        self.update()
+        if self._active:
+            self._glow_phase = (self._glow_phase + 0.06) % 1.0
+            self.update()
 
     def paintEvent(self, _) -> None:
         p = QPainter(self)
@@ -351,19 +348,38 @@ class GraphCanvas(QWidget):
         p.setFont(font)
         fm = QFontMetrics(font)
 
+        # Pulse amplitude derived from glow_phase: a smooth in-out cosine.
+        pulse = 0.5 * (1.0 - math.cos(self._glow_phase * 2.0 * math.pi))
+
         for node in self._nodes.values():
             sel  = node.id == self._selected
             hov  = node.id == self._hovered
             hi   = node.id in self._highlighted
+            act  = node.id in self._active
             r    = 22 if sel else (20 if hi else 16)
-            col  = QColor(PURPLE if sel else (CYAN if hov else (BLUE if hi else BG4)))
+
+            # ── Active glow ring ────────────────────────────────────────────
+            # Cyan halo painted slightly outside the node, alpha-pulsed.
+            if act:
+                glow_r     = r + int(8 + 6 * pulse)
+                glow_alpha = int(70 + 100 * pulse)
+                glow_col   = QColor(CYAN)
+                glow_col.setAlpha(glow_alpha)
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.setPen(QPen(glow_col, 3))
+                p.drawEllipse(
+                    int(node.x - glow_r), int(node.y - glow_r),
+                    glow_r * 2, glow_r * 2,
+                )
+
+            col = QColor(PURPLE if sel else (CYAN if hov else (BLUE if hi else BG4)))
             p.setBrush(col)
-            border_col = QColor(BLUE if hi or sel else BG3)
+            border_col = QColor(CYAN if act else (BLUE if hi or sel else BG3))
             p.setPen(QPen(border_col, 2))
             p.drawEllipse(int(node.x - r), int(node.y - r), r * 2, r * 2)
             label = node.label
             lw    = fm.horizontalAdvance(label)
-            p.setPen(QColor(FG if sel or hov or hi else FG_DIM))
+            p.setPen(QColor(FG if sel or hov or hi or act else FG_DIM))
             p.drawText(int(node.x - lw // 2), int(node.y + 4), label)
 
         p.end()
@@ -481,8 +497,8 @@ class SuggestionBar(QWidget):
             last.setText(text)
             try:
                 last.clicked.disconnect()
-            except Exception:
-                pass
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
             last.clicked.connect(lambda _, t=text: self.triggered.emit(t))
 
 
@@ -687,7 +703,7 @@ class ChatView(QTextEdit):
             # Body
             + f'<div style="padding:10px 14px 12px 14px;">{body}</div>'
 
-            + f'</div>'
+            + '</div>'
         )
         self.append(html)
         self._scroll_bottom()
@@ -816,7 +832,6 @@ _CONSCIOUS_OK = False
 try:
     from consciousness import (
         get_conscious_orchestrator,
-        PersonaState,
     )
     from pyramid_ensemble import (
         EnsembleEvent,
@@ -1004,7 +1019,7 @@ class AgentCard(QFrame):
 
         self._creative_badge = QLabel("")
         self._creative_badge.setStyleSheet(
-            f"color:#ff00aa;font-size:9px;font-weight:bold;"
+            "color:#ff00aa;font-size:9px;font-weight:bold;"
         )
         self._creative_badge.hide()
         persona_row.addWidget(self._creative_badge)
@@ -1204,7 +1219,7 @@ class EnsemblePanel(QWidget):
 
         meta_hdr = QLabel("⚡  STRANGE LOOP — META-INSIGHT")
         meta_hdr.setStyleSheet(
-            f"color:#ff00aa;font-size:9px;font-weight:bold;letter-spacing:1px;"
+            "color:#ff00aa;font-size:9px;font-weight:bold;letter-spacing:1px;"
         )
         meta_lay.addWidget(meta_hdr)
 
@@ -1234,7 +1249,7 @@ class EnsemblePanel(QWidget):
                 self._meta_wrap.show()
             elif "Strange loop" in msg:
                 self._round_lbl.setText("⚡  Reflecting")
-                self._round_lbl.setStyleSheet(f"color:#ff00aa;font-size:10px;")
+                self._round_lbl.setStyleSheet("color:#ff00aa;font-size:10px;")
             else:
                 label = f"●  Round {event.round}" if event.round else f"●  {msg[:40]}"
                 self._round_lbl.setText(label)
@@ -1244,11 +1259,25 @@ class EnsemblePanel(QWidget):
             card = self._cards.get(event.agent_id)
             if card:
                 card.set_thinking(event.round)
+            # Glow all currently-highlighted nodes — they're the files this
+            # agent is reasoning over. Cleared on AGENT_DONE / ENSEMBLE_DONE.
+            try:
+                for nid in self._graph._highlighted:
+                    self._graph.set_active(nid, True)
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
 
         elif kind == EventKind.AGENT_DONE:
             card = self._cards.get(event.agent_id)
             if card and event.perception:
                 card.set_done(event.perception)
+            # Light the freshly-touched files; cap with clear on ENSEMBLE_DONE.
+            try:
+                if event.perception and event.perception.files_touched:
+                    for f in event.perception.files_touched:
+                        self._graph.set_active(f, True)
+            except Exception as e:
+                _log.warning(f'caught exception: {e}')
                 # Reflect updated persona state if consciousness layer is active
                 if _CONSCIOUS_OK:
                     try:
@@ -1257,8 +1286,8 @@ class EnsemblePanel(QWidget):
                         ps = states.get(event.agent_id)
                         if ps:
                             card.set_persona_state(ps.curiosity, ps.energy)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _log.warning(f'caught exception: {e}')
             self._steps_done += 1
             self._progress.setValue(self._steps_done)
             self._step_lbl.setText(f"{self._steps_done}/{self._TOTAL_STEPS}")
@@ -1284,8 +1313,8 @@ class EnsemblePanel(QWidget):
                             if card:
                                 card.set_creative_signal(True)
                             break
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.warning(f'caught exception: {e}')
 
         elif kind == EventKind.SYNTH_START:
             self._round_lbl.setText("●  Synthesizing")
@@ -1310,6 +1339,8 @@ class EnsemblePanel(QWidget):
         elif kind == EventKind.ENSEMBLE_DONE:
             self._round_lbl.setText("●  done")
             self._round_lbl.setStyleSheet(f"color:{GREEN};font-size:10px;")
+            try: self._graph.clear_active()
+            except Exception: pass
 
     def handle_result(self, result: "EnsembleResult") -> None:
         if result is None:

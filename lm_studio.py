@@ -19,6 +19,8 @@ import os
 import json
 import requests
 from datetime import datetime
+import logging
+_log = logging.getLogger(__name__)
 
 LM_STUDIO_URL  = os.environ.get("LM_STUDIO_URL", "http://localhost:1234")
 OLLAMA_URL     = "http://localhost:11434/api/generate"
@@ -52,8 +54,8 @@ def get_lm_studio_models() -> list[str]:
         if r.status_code == 200:
             data = r.json()
             return [m["id"] for m in data.get("data", [])]
-    except Exception:
-        pass
+    except Exception as e:
+        _log.warning(f'caught exception: {e}')
     return []
 
 
