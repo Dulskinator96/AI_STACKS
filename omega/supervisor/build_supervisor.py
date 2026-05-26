@@ -60,6 +60,11 @@ class BuildSupervisor:
         from omega.supervisor.health import health_snapshot
         return health_snapshot(persist=persist)
 
+    def depgraph(self, *, persist: bool = True) -> dict:
+        """Internal import dependency graph (fragile chains + cycles)."""
+        from omega.supervisor.dependency_graph import build_dependency_graph
+        return build_dependency_graph(persist=persist)
+
     def clean(self, *, apply: bool = False) -> dict:
         return {"processes": clean_processes(apply=apply),
                 "stale_telemetry": scan_stale_telemetry()}

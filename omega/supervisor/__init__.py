@@ -13,9 +13,11 @@ from omega.supervisor.hygiene import (
 )
 from omega.supervisor.environment import verify_environment
 from omega.supervisor.health import health_snapshot
+from omega.supervisor.dependency_graph import build_dependency_graph
 from omega.supervisor.build_supervisor import BuildSupervisor, get_supervisor
 
 __all__ = [
     "scan_processes", "clean_processes", "scan_stale_telemetry",
-    "verify_environment", "health_snapshot", "BuildSupervisor", "get_supervisor",
+    "verify_environment", "health_snapshot", "build_dependency_graph",
+    "BuildSupervisor", "get_supervisor",
 ]

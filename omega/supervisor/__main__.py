@@ -1,6 +1,7 @@
 """BUILD_SUPERVISOR CLI — python -m omega.supervisor <command>
 
   health   read-only: single composite system-reality snapshot (all sources)
+  depgraph read-only: internal import dependency graph (fragile chains + cycles)
   status   read-only: orphan procs, stale telemetry, env readiness, last good
   clean    kill orphan runtime processes + report stale telemetry (apply)
   env      verify build/runtime environment
@@ -24,6 +25,8 @@ def main(argv: list[str]) -> int:
     sup = get_supervisor()
     if cmd == "health":
         out = sup.health()
+    elif cmd == "depgraph":
+        out = sup.depgraph()
     elif cmd == "status":
         out = sup.status()
     elif cmd == "clean":
