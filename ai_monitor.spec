@@ -178,7 +178,7 @@ if os.path.isdir(_ui_dir):
 # layer (BUILD-034). Includes subpackages tracing/, rooms/, evolution/.
 _omega_dir = os.path.join(_root, "omega")
 if os.path.isdir(_omega_dir):
-    for sub_rel in ("", "tracing", "rooms", "evolution"):
+    for sub_rel in ("", "tracing", "rooms", "evolution", "supervisor"):
         sub = os.path.join(_omega_dir, sub_rel) if sub_rel else _omega_dir
         if not os.path.isdir(sub):
             continue
@@ -488,6 +488,10 @@ a = Analysis(
         "omega.evolution.repair_planner",
         "omega.evolution.patch_engine",
         "omega.evolution.optimization_cycles",
+        "omega.supervisor",
+        "omega.supervisor.hygiene",
+        "omega.supervisor.environment",
+        "omega.supervisor.build_supervisor",
         # FastAPI transport + in-process uvicorn (dynamic string imports)
         "service",
         "service.api",
