@@ -110,3 +110,10 @@ kernel.db
 _run_cert.ps1
 _run_diagnostics*.ps1
 _verify_*.ps1
+
+# --- BUILD-034 omega temp/scratch helpers + lint output ---
+_omega_*.py
+_omega_*.ps1
+_ledcheck.py
+_pyflakes_*.txt
+build034.log

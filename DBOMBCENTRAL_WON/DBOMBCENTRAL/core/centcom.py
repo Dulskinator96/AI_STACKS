@@ -12,7 +12,6 @@ Phase 2: Cortex will spawn and coordinate multiple specialist agents via LangGra
 from datetime import datetime
 from rich.console import Console
 from rich.table import Table
-from rich.panel import Panel
 from rich import box
 
 console = Console()

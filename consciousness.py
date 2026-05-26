@@ -69,7 +69,6 @@ from pyramid_ensemble import (
     Perception,
     _DB_PATH,
     DEFAULT_MODEL,
-    _log as _ens_log,
     _ollama,
 )
 

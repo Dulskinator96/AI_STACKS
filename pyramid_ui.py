@@ -526,7 +526,7 @@ class BreadcrumbBar(QWidget):
             return
         self._files.append(path)
         # Remove stretch, add chip, re-add stretch
-        item = self._layout.takeAt(self._layout.count() - 1)
+        self._layout.takeAt(self._layout.count() - 1)
         name = Path(path).name
         btn  = QPushButton(name)
         btn.setFixedHeight(20)

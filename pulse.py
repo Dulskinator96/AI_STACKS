@@ -24,11 +24,10 @@ import json
 import time
 import hashlib
 import threading
-import traceback
 import subprocess
 import platform
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 import logging
@@ -325,7 +324,6 @@ No preamble. No explanation. Just the insight line."""
 
             recent = outcomes[-20:] if len(outcomes) > 20 else outcomes
             approved   = sum(1 for o in recent if o.get("outcome") == "approved")
-            rejected   = sum(1 for o in recent if o.get("outcome") == "rejected")
             total      = len(recent)
             approval_r = approved / total if total else 0
 

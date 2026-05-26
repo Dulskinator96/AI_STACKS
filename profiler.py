@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import hashlib
 import threading
-import re
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path

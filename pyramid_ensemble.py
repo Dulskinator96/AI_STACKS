@@ -935,7 +935,7 @@ class ValidationAgent(BaseAgent):
 
     def analyze(self, query, code_context, peer_perceptions=None,
                 web_context="", round_num=1) -> Perception:
-        t0 = time.time()
+        time.time()
         peer_block  = self._peer_block(peer_perceptions or [])
         web_section = f"\n## Web Research to Validate\n{web_context}" if web_context else ""
         prompt = self._prompt(query, code_context, extra=web_section + peer_block)
@@ -998,7 +998,7 @@ class ImplementationAgent(BaseAgent):
 
     def analyze(self, query, code_context, peer_perceptions=None,
                 web_context="", round_num=1) -> Perception:
-        t0 = time.time()
+        time.time()
         peer_block = self._peer_block(peer_perceptions or [])
         if round_num == 1:
             self._implementer_findings = self._scan_implementer_surface()
@@ -1033,7 +1033,7 @@ class PlannerAgent(BaseAgent):
 
     def analyze(self, query, code_context, peer_perceptions=None,
                 web_context="", round_num=1) -> Perception:
-        t0 = time.time()
+        time.time()
 
         # Planning Agent drives web research in Round 1
         sources: list[dict] = []
@@ -1107,7 +1107,7 @@ class StrategistAgent(BaseAgent):
 
     def analyze(self, query, code_context, peer_perceptions=None,
                 web_context="", round_num=1) -> Perception:
-        t0 = time.time()
+        time.time()
         peer_block = self._peer_block(peer_perceptions or [])
         prompt = self._prompt(query, code_context, extra=peer_block)
         text, ms = _ollama(_SYS["strategist"], prompt, self.model)
@@ -1134,7 +1134,7 @@ class SynthesisAgent(BaseAgent):
 
     def analyze(self, query, code_context, peer_perceptions=None,
                 web_context="", round_num=3) -> Perception:
-        t0 = time.time()
+        time.time()
         all_percs = peer_perceptions or []
 
         corpus = [f"# Intelligence Corpus — Query: {query}\n"]

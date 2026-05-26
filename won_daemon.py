@@ -25,8 +25,6 @@ import signal
 import threading
 import hashlib
 import argparse
-import traceback
-import subprocess
 import requests as _requests
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -74,7 +72,12 @@ def log(msg: str, level: str = "INFO"):
             lines = DAEMON_LOG.read_text(encoding="utf-8").splitlines()
             DAEMON_LOG.write_text("\n".join(lines[-2000:]) + "\n", encoding="utf-8")
     except Exception as e:
-        _log.warning(f'caught exception: {e}')
+        try:
+            from truth.failure_classifier import report_caught
+            report_caught("won_daemon_log_write", e, executor="won_daemon.log",
+                          evidence={"daemon_log_path": str(DAEMON_LOG)})
+        except Exception:
+            _log.warning(f"daemon log write failed (uncategorized): {e}")
 
 
 # ── Shared daemon state ────────────────────────────────────────────────────────
@@ -111,7 +114,9 @@ class DaemonState:
                 self.research_count   = saved.get("research_count", 0)
                 log("State restored from disk")
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                from truth.failure_classifier import report_caught
+                report_caught("daemon_state_load", e, executor="DaemonState._load",
+                              evidence={"state_file": str(STATE_FILE)})
 
     def save(self):
         with self._lock:
@@ -128,7 +133,9 @@ class DaemonState:
                     "last_updated":      datetime.now().isoformat(),
                 }, indent=2), encoding="utf-8")
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                from truth.failure_classifier import report_caught
+                report_caught("daemon_state_save", e, executor="DaemonState.save",
+                              evidence={"state_file": str(STATE_FILE)})
 
     def add_notification(self, title: str, body: str, priority: str = "normal"):
         with self._lock:
@@ -153,7 +160,11 @@ class DaemonState:
                     encoding="utf-8"
                 )
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                from truth.failure_classifier import report_caught
+                report_caught("daemon_notification_write", e,
+                              executor="DaemonState.add_notification",
+                              evidence={"notify_file": str(NOTIFY_FILE),
+                                        "notification_title": title})
 
     def record_outcome(self, task: str, score: float):
         """Record the quality score of a completed task for adaptive learning."""
@@ -223,7 +234,12 @@ def ollama_available() -> bool:
         import requests
         r = requests.get("http://localhost:11434/api/tags", timeout=3)
         return r.status_code == 200
-    except Exception:
+    except Exception as exc:
+        from truth.failure_classifier import report_caught
+        report_caught("ollama_availability_probe", exc,
+                       executor="ollama_available",
+                       evidence={"url": "http://localhost:11434/api/tags"},
+                       severity="info")  # transient; ollama may be off
         return False
 
 
@@ -251,7 +267,11 @@ class MemoryInterface:
             self._db.store_entry_bg("daemon", mode, content, None,
                                     ",".join(tags or []))
             return True
-        except Exception:
+        except Exception as exc:
+            from truth.failure_classifier import report_caught
+            report_caught("memory_store", exc, executor="MemoryInterface.store",
+                          evidence={"mode": mode, "content_len": len(content)},
+                          severity="warning")
             return False
 
     def recall_recent(self, limit: int = 10, mode: str | None = None) -> list[dict]:
@@ -259,7 +279,12 @@ class MemoryInterface:
             return []
         try:
             return self._db.recall_entries(limit, mode)
-        except Exception:
+        except Exception as exc:
+            from truth.failure_classifier import report_caught
+            report_caught("memory_recall", exc,
+                          executor="MemoryInterface.recall_recent",
+                          evidence={"limit": limit, "mode": mode},
+                          severity="warning")
             return []
 
     def get_context_for_cognition(self) -> str:
@@ -324,7 +349,11 @@ class PerceptionEngine:
                 "ram_available_gb": round(p.virtual_memory().available / 1e9, 1),
                 "disk_free_gb":   round(p.disk_usage("/").free / 1e9, 1),
             }
-        except Exception:
+        except Exception as exc:
+            from truth.failure_classifier import report_caught
+            report_caught("perception_system_metrics", exc,
+                          executor="PerceptionEngine._system_metrics",
+                          severity="warning")
             return {}
 
     def _relevant_processes(self) -> list[str]:
@@ -346,7 +375,11 @@ class PerceptionEngine:
                     if key in name:
                         running.append(label)
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            from truth.failure_classifier import report_caught
+            report_caught("perception_process_iter", e,
+                          executor="PerceptionEngine._relevant_processes",
+                          evidence={"partial_results_count": len(running)},
+                          severity="warning")
         return list(set(running))
 
     def _detect_file_changes(self) -> list[str]:
@@ -362,7 +395,12 @@ class PerceptionEngine:
                         changed.append(f.name)
                     self._file_hashes[key] = h
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                from truth.failure_classifier import report_caught
+                report_caught("perception_file_scan", e,
+                              executor="PerceptionEngine._detect_file_changes",
+                              evidence={"watched_dir": str(d),
+                                        "partial_changes": len(changed)},
+                              severity="warning")
         return changed[:5]
 
     def _count_vault_notes(self) -> dict:
@@ -411,8 +449,24 @@ class CognitionLoop:
         self._memory = memory
 
     def think(self) -> str | None:
-        """Run one cognition cycle. Returns the thought or None."""
+        """Run one cognition cycle. Returns the thought or None.
+
+        Doctrine §3 P5 (NO UNCONTROLLED AUTONOMY): every cycle emits an
+        ExecutionReceipt to telemetry/execution_receipts.jsonl with the
+        prompt index, a short thought hash, escalation outcome, and drift
+        classification.
+        """
+        cycle_t0 = time.monotonic()
+        escalated = False
+        drift_dropped = False
+        drift_reason = ""
+
         if not ollama_available():
+            self._emit_cognition_receipt(
+                cycle_t0, thought=None, escalated=False,
+                drift_dropped=False, drift_reason="ollama_unavailable",
+                prompt_idx=self._prompt_idx, verified=False,
+            )
             return None
 
         context = self._memory.get_context_for_cognition()
@@ -420,6 +474,7 @@ class CognitionLoop:
 
         # Pick next cognition prompt (rotating)
         q = self.COGNITION_PROMPTS[self._prompt_idx % len(self.COGNITION_PROMPTS)]
+        prompt_idx_used = self._prompt_idx
         self.__class__._prompt_idx += 1
 
         # Build autonomous reasoning prompt
@@ -453,13 +508,36 @@ MEMORY CONTEXT (most recent first):
 AUTONOMOUS COGNITION TASK:
 {q}
 
+═══════════════════════════════════════════════════════════════
+REALITY ENFORCEMENT (NON-NEGOTIABLE — overrides anything else):
+- Cite ONLY entities, file paths, processes, projects, or events that
+  appear verbatim in the OPERATIONAL PICTURE or MEMORY CONTEXT above.
+- DO NOT invent project names (no "Project Aurora", "Project Luna",
+  "Project X" unless one of those strings literally appears above).
+- DO NOT invent IP addresses, network connections, security breaches,
+  data exfiltration events, or external threats — DBOMBCENTRAL is a
+  local desktop app; it has no remote attack surface to breach.
+- DO NOT invent file names, function names, code patterns, or
+  refactors unless that string is present in the context above.
+- If the OPERATIONAL PICTURE and MEMORY CONTEXT are sparse or empty,
+  the correct response is: "NO_FINDING — insufficient grounded
+  evidence this cycle." Then output ESCALATE: NO.
+- Speculation without evidence is fabrication. Fabrication is failure.
+
 Think like an operator, not an assistant. Dense. Direct. No hedging without data.
 This is internal reasoning — do not address Dan.
 End with: ESCALATE: YES or NO — is this worth interrupting Dan for?
-If YES: ESCALATION_TITLE: <five words or fewer>"""
+If YES: ESCALATION_TITLE: <five words or fewer>
+Only escalate if (a) the finding cites a string from the context above
+AND (b) the finding is materially actionable."""
 
         thought = ollama_think(prompt, max_tokens=300, temperature=0.5)
         if not thought:
+            self._emit_cognition_receipt(
+                cycle_t0, thought=None, escalated=False,
+                drift_dropped=False, drift_reason="ollama_empty_response",
+                prompt_idx=prompt_idx_used, verified=False,
+            )
             return None
 
         # Store the thought
@@ -473,17 +551,103 @@ If YES: ESCALATION_TITLE: <five words or fewer>"""
             self._state.cognition_count += 1
             self._state.last_cognition = datetime.now().isoformat()
 
-        # Check for escalation
-        if "ESCALATE: YES" in thought.upper():
+        # Check for escalation — but gate against fabrication.
+        # Reality Enforcement: a finding only gets surfaced to Dan if it cites
+        # at least one grounded token (something present in sys_info, apps,
+        # file_changes, or context) AND it doesn't trip a fabrication-marker
+        # blocklist. Otherwise it gets logged as drift and dropped.
+        if "ESCALATE: YES" in thought.upper() and "NO_FINDING" not in thought.upper():
             import re
             title_match = re.search(r"ESCALATION_TITLE:\s*(.+)", thought)
             title = title_match.group(1).strip() if title_match else "WON has a thought"
             body  = thought.replace("ESCALATE: YES", "").strip()[:300]
-            self._state.add_notification(title, body, priority="normal")
-            log(f"Escalation: {title}")
+
+            grounding_blob = " ".join([
+                sys_info or "",
+                apps or "",
+                ", ".join(perc.get("file_changes", []) or []),
+                context or "",
+            ]).lower()
+            body_lc = body.lower()
+
+            # Fabrication blocklist — phrases that historically only appear in
+            # hallucinated outputs because DBOMBCENTRAL is a local desktop app.
+            FABRICATION_MARKERS = (
+                "project aurora", "project luna", "project orion",
+                "data breach", "exfiltration", "suspicious ip",
+                "unauthorized access from", "command and control",
+                "external attacker", "stand by mode due to loss of power",
+            )
+            tripped = [m for m in FABRICATION_MARKERS if m in body_lc]
+
+            # Grounded-token check: at least one significant noun from the
+            # grounding blob must appear in the body. Pull words of length >=5
+            # from grounding to use as anchors.
+            grounded_tokens = {
+                t for t in re.findall(r"[A-Za-z_][A-Za-z_0-9]{4,}", grounding_blob)
+                if t not in {"system", "active", "tools", "shifted", "memory",
+                              "context", "since", "cycle", "above"}
+            }
+            cited = any(tok in body_lc for tok in grounded_tokens) if grounded_tokens else False
+
+            if tripped:
+                log(
+                    f"DRIFT_DROPPED escalation '{title}' — fabrication markers: "
+                    f"{tripped}", "WARNING",
+                )
+                drift_dropped = True
+                drift_reason = f"fabrication_markers:{','.join(tripped)}"
+            elif not cited and grounded_tokens:
+                log(
+                    f"DRIFT_DROPPED escalation '{title}' — no grounded token "
+                    f"cited from context", "WARNING",
+                )
+                drift_dropped = True
+                drift_reason = "no_grounded_token"
+            else:
+                self._state.add_notification(title, body, priority="normal")
+                log(f"Escalation: {title}")
+                escalated = True
 
         log(f"Cognition #{self._state.cognition_count} complete")
+        self._emit_cognition_receipt(
+            cycle_t0, thought=thought, escalated=escalated,
+            drift_dropped=drift_dropped, drift_reason=drift_reason,
+            prompt_idx=prompt_idx_used, verified=True,
+        )
         return thought
+
+    def _emit_cognition_receipt(self, cycle_t0: float, *, thought, escalated: bool,
+                                  drift_dropped: bool, drift_reason: str,
+                                  prompt_idx: int, verified: bool) -> None:
+        """Emit an ExecutionReceipt for one cognition cycle (Doctrine §3 P5).
+        Never raises. Best-effort import — survives in environments where the
+        truth layer isn't on sys.path."""
+        try:
+            from truth.receipt_engine import record_execution
+            duration_ms = (time.monotonic() - cycle_t0) * 1000.0
+            thought_hash = ""
+            if thought:
+                thought_hash = hashlib.sha256(thought.encode("utf-8")).hexdigest()[:16]
+            record_execution(
+                task="cognition_cycle",
+                executor="CognitionLoop",
+                artifact=None,
+                duration_ms=duration_ms,
+                verified=verified,
+                compute_sha256=False,
+                evidence={
+                    "prompt_idx":    prompt_idx,
+                    "thought_hash":  thought_hash,
+                    "thought_len":   len(thought) if thought else 0,
+                    "escalated":     escalated,
+                    "drift_dropped": drift_dropped,
+                    "drift_reason":  drift_reason,
+                    "cognition_count": self._state.cognition_count,
+                },
+            )
+        except Exception as e:
+            _log.debug("cognition receipt emit failed: %s", e)
 
     def run_loop(self):
         log("CognitionLoop started")
@@ -688,7 +852,11 @@ class ResearchEngine:
                 encoding="utf-8"
             )
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            from truth.failure_classifier import report_caught
+            report_caught("research_obsidian_write", e,
+                          executor="ResearchEngine._write_to_obsidian",
+                          evidence={"topic": topic[:80]},
+                          severity="warning")
 
     def run_loop(self):
         log("ResearchEngine started")
@@ -731,7 +899,7 @@ class EscalationEngine:
 
     def check(self):
         perc = self._state.perception_data
-        threshold = self._state.learning_weights.get("escalation_threshold", 0.7)
+        self._state.learning_weights.get("escalation_threshold", 0.7)
 
         # System resource alerts
         system = perc.get("system", {})
@@ -877,12 +1045,14 @@ If nothing significant found, respond: {{"area": "none", "inefficiency": "no iss
                     log(f"SystemForge audit: {finding.get('inefficiency','')[:80]}")
                     return finding
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            from truth.failure_classifier import report_caught
+            report_caught("systemforge_audit_parse", e,
+                          executor="SystemForgeAuditor.audit",
+                          severity="warning")
         return None
 
     def _read_relevant_source(self, topic: str) -> str:
         """Read the most relevant source file for the audit topic."""
-        import re
         file_map = {
             "app.py":        ["blocking", "ui", "main thread", "requests.post"],
             "pipeline.py":   ["pipeline", "duplicate", "write", "capture"],
@@ -898,7 +1068,11 @@ If nothing significant found, respond: {{"area": "none", "inefficiency": "no iss
                         # Return relevant section (first 1500 chars)
                         return content[:1500]
                 except Exception as e:
-                    _log.warning(f'caught exception: {e}')
+                    from truth.failure_classifier import report_caught
+                    report_caught("systemforge_source_read", e,
+                                  executor="SystemForgeAuditor._read_relevant_source",
+                                  evidence={"fname": fname},
+                                  severity="warning")
         return "Source file not accessible for this audit."
 
 # ── Web Validation Engine ──────────────────────────────────────────────────────
@@ -972,7 +1146,12 @@ class WebValidationEngine:
                     from profiler import get_profile
                     get_profile().update_agent_dna("ValidationAgent", result["confidence"])
                 except Exception as e:
-                    _log.warning(f'caught exception: {e}')
+                    from truth.failure_classifier import report_caught
+                    report_caught("profile_dna_update", e,
+                                  executor="WebValidationEngine.validate_recent",
+                                  evidence={"agent": "ValidationAgent",
+                                            "confidence": result.get("confidence")},
+                                  severity="info")
 
             except Exception as exc:
                 log(f"WebValidation entry error: {exc}", "WARN")
@@ -1005,7 +1184,11 @@ class WebValidationEngine:
                         "method":     "ddg",
                     }
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            from truth.failure_classifier import report_caught
+            report_caught("web_validation_ddg", e,
+                          executor="WebValidationEngine.spot_check_claim",
+                          evidence={"claim_preview": (claim or "")[:80]},
+                          severity="info")  # transient network failures expected
         return {"valid": None, "confidence": 0.3, "source": None, "evidence": None, "method": "none"}
 
     def run_loop(self):
@@ -1044,7 +1227,10 @@ class WONDaemon:
             get_profile().start_session()
             log("OperatorProfile: session started")
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            from truth.failure_classifier import report_caught
+            report_caught("operator_profile_start", e,
+                          executor="WONDaemon.__init__",
+                          severity="info")  # profiler optional
 
     def start(self):
         mem_status = "Supabase" if (self.memory._db and self.memory._db.available()) else "offline"

@@ -38,6 +38,23 @@ try:
         logging.getLogger("stratum.bootstrap").debug(
             "boot_validator unavailable: %s", _bv_exc,
         )
+
+    # HOTWIRE Phases 1-3: environment validation + kernel boot + intelligence
+    # stack presence probe. Fast (~80ms). Phase 4-7 fire post-paint from
+    # _deferred_services. See AI_STACK_SUPREMACY_DOCTRINE.md and
+    # core/bootstrap.py for the full sequence.
+    try:
+        # Ensure the AI_STACK parent (where kernel/ lives) is on sys.path so
+        # kernel.* imports resolve in both dev and frozen exe contexts.
+        _AISTACK_PARENT = _SCRIPT_DIR.parent
+        if str(_AISTACK_PARENT) not in sys.path:
+            sys.path.insert(0, str(_AISTACK_PARENT))
+        from core.bootstrap import get_bootstrap as _get_bootstrap
+        _get_bootstrap().run_pre_qapplication_phases()
+    except Exception as _hw_exc:
+        logging.getLogger("stratum.bootstrap").debug(
+            "hotwire pre-qapp phases unavailable: %s", _hw_exc,
+        )
 except Exception:
     _get_boot_profiler = None
     _get_state_mgr = None
@@ -104,6 +121,25 @@ from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 import requests
 _log = logging.getLogger(__name__)
 
+
+def _classified_failure(exc, task: str = "app_py_caught_exception", *,
+                         executor: str = "", evidence=None,
+                         severity: str = "warning") -> None:
+    """Doctrine §3 P2 (NO SILENT FAILURE): app.py-wide classified-failure
+    shim. Wraps truth.failure_classifier.report_caught with a defensive
+    import so very-early-boot sites that catch exceptions before the truth
+    layer is reachable still get a log line at minimum."""
+    try:
+        from truth.failure_classifier import report_caught
+        report_caught(task, exc, executor=executor or task,
+                       evidence=evidence, severity=severity)
+    except Exception:
+        try:
+            _log.warning("caught (unclassified) exception in %s: %s", task, exc)
+        except Exception:
+            pass
+
+
 # ── Optional integrations (graceful offline) ─────────────────
 DAVINCI_OK = False   # removed — not core to STRATUM purpose
 UNREAL_OK  = False   # removed — not core to STRATUM purpose
@@ -153,7 +189,7 @@ class _LazyImport:
                     logging.getLogger("stratum.app").info(
                         "lazy-import %s deferred-failed: %s", self._name, exc)
                 except Exception as e:
-                    _log.warning(f'caught exception: {e}')
+                    _classified_failure(e, "app_py_caught_exception")
                 self._mod = None
         return self._mod
     def __getattr__(self, attr):
@@ -221,7 +257,7 @@ try:
         WICK_DOCK_OFFSET_X, WICK_DOCK_OFFSET_Y, WICK_DOCK_WIDTH,
     )
     DETCORE_OK = True
-except Exception as _detcore_exc:
+except Exception:
     DETCORE_OK = False
 
 # ── Profiler (operator behavioral profiling) ─────────────────────────────────
@@ -288,7 +324,7 @@ class NativeBridge:
             sys.stdout.buffer.write(encoded)
             sys.stdout.buffer.flush()
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
 
 
 # ── Path helpers (Cursor) ───────────────────────────────────
@@ -363,7 +399,7 @@ def load_profile() -> dict:
         try:
             return json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
     PROFILE_FILE.parent.mkdir(parents=True, exist_ok=True)
     PROFILE_FILE.write_text(json.dumps(_DEFAULT_PROFILE, indent=2), encoding="utf-8")
     return dict(_DEFAULT_PROFILE)
@@ -390,7 +426,7 @@ def build_chaperone_prompt() -> str:
         try:
             profile_block = _profiler.get_profile().get_prompt_injection()
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
 
     return f"""You are WON — STRATUM PRIME, the living intelligence core of DBOMB ASCENDENT.
 You are not a chatbot. You are a continuously operating autonomous mind
@@ -606,31 +642,122 @@ class Worker(QThread):
 
 # ── Stylesheet ──────────────────────────────────────────────
 STYLE = """
+/* ─────────────────────────────────────────────────────────────────────
+   DBOMBLOCAL — TimeSplitters 2 theme
+   Deep indigo dusk · hot-pink chrome · arcade-yellow accents
+   ──────────────────────────────────────────────────────────────────── */
 QMainWindow, QDialog, QWidget {
-    background-color: #0d1117;
-    color: #c9d1d9;
+    background-color: #1a0e3e;
+    color: #fff5e0;
     font-family: 'Consolas', 'Courier New', monospace;
     font-size: 13px;
 }
-QTabWidget::pane  { border: 1px solid #21262d; background: #0d1117; }
-QTabBar::tab      { background: #161b22; padding: 8px 18px; border: 1px solid #21262d; color: #8b949e; }
-QTabBar::tab:selected { background: #0d1117; color: #58a6ff; border-bottom: 2px solid #58a6ff; }
+QTabWidget::pane  {
+    border: 1px solid #ff2d92;
+    background: #1a0e3e;
+}
+QTabBar::tab {
+    background: #2d1759;
+    padding: 8px 18px;
+    border: 1px solid #ff2d92;
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    color: #ff8eb7;
+    margin-right: 2px;
+    font-weight: bold;
+    letter-spacing: 1px;
+}
+QTabBar::tab:selected {
+    background: #1a0e3e;
+    color: #ffce28;
+    border-bottom: 3px solid #ffce28;
+}
+QTabBar::tab:hover { color: #28e6ff; }
 QPushButton {
-    background-color: #21262d; border: 1px solid #30363d;
-    border-radius: 5px; padding: 6px 14px; color: #c9d1d9;
+    background-color: #2d1759;
+    border: 1px solid #ff2d92;
+    border-radius: 6px;
+    padding: 6px 14px;
+    color: #fff5e0;
+    font-weight: bold;
+    letter-spacing: 0.5px;
 }
-QPushButton:hover  { background-color: #30363d; color: #e6edf3; }
-QPushButton:pressed{ background-color: #58a6ff; color: #0d1117; }
+QPushButton:hover {
+    background-color: #4a2682;
+    color: #ffce28;
+    border: 1px solid #ffce28;
+}
+QPushButton:pressed {
+    background-color: #ffce28;
+    color: #1a0e3e;
+    border: 1px solid #ffce28;
+}
 QListWidget, QTextEdit, QLineEdit {
-    background-color: #010409; border: 1px solid #21262d;
-    border-radius: 4px; padding: 6px; color: #c9d1d9;
+    background-color: #0a0420;
+    border: 1px solid #ff2d92;
+    border-radius: 5px;
+    padding: 6px;
+    color: #fff5e0;
+    selection-background-color: #ff2d92;
+    selection-color: #fff5e0;
 }
-QListWidget::item:selected { background-color: #1f6feb; color: #fff; }
-QSplitter::handle  { background: #21262d; width: 2px; }
-QProgressBar       { border: 1px solid #30363d; border-radius: 3px; background: #010409; }
-QProgressBar::chunk{ background-color: #1f6feb; }
-QStatusBar         { background: #161b22; color: #8b949e; font-size: 11px; }
-QLabel#section     { color: #58a6ff; font-weight: bold; font-size: 11px; letter-spacing: 1px; }
+QListWidget::item:hover { background-color: #2d1759; }
+QListWidget::item:selected {
+    background-color: #ff2d92;
+    color: #1a0e3e;
+}
+QSplitter::handle { background: #ff2d92; width: 2px; }
+QProgressBar {
+    border: 1px solid #ff2d92;
+    border-radius: 4px;
+    background: #0a0420;
+    text-align: center;
+    color: #fff5e0;
+}
+QProgressBar::chunk {
+    background-color: #ffce28;
+    border-radius: 3px;
+}
+QStatusBar {
+    background: #0e0626;
+    color: #28e6ff;
+    font-size: 11px;
+    border-top: 1px solid #ff2d92;
+}
+QLabel#section {
+    color: #ffce28;
+    font-weight: bold;
+    font-size: 11px;
+    letter-spacing: 2px;
+}
+QScrollBar:vertical {
+    background: #0a0420;
+    width: 12px;
+    border: 1px solid #2d1759;
+}
+QScrollBar::handle:vertical {
+    background: #ff2d92;
+    border-radius: 4px;
+    min-height: 24px;
+}
+QScrollBar::handle:vertical:hover { background: #ffce28; }
+QMenu {
+    background: #0a0420;
+    color: #fff5e0;
+    border: 1px solid #ff2d92;
+}
+QMenu::item:selected {
+    background: #ff2d92;
+    color: #1a0e3e;
+}
+QToolTip {
+    background: #ffce28;
+    color: #1a0e3e;
+    border: 1px solid #1a0e3e;
+    padding: 4px 8px;
+    font-weight: bold;
+}
 """
 
 
@@ -645,7 +772,7 @@ def get_daemon_status() -> dict:
         try:
             return json.loads(DAEMON_STATE_FILE.read_text(encoding="utf-8"))
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
     return {}
 
 def get_daemon_notifications(unread_only: bool = True) -> list[dict]:
@@ -672,7 +799,7 @@ def mark_notifications_read():
             json.dumps(notes, indent=2, ensure_ascii=False), encoding="utf-8"
         )
     except Exception as e:
-        _log.warning(f'caught exception: {e}')
+        _classified_failure(e, "app_py_caught_exception")
 
 
 def ollama_available() -> bool:
@@ -736,7 +863,7 @@ class SelfModEngine:
             if all(k in colors for k in required):
                 return colors
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
         return None
 
     @classmethod
@@ -795,7 +922,7 @@ class SelfModEngine:
                     "risk_level":  risk_m.group(1).lower() if risk_m else "medium",
                 }
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
         return None
 
     @classmethod
@@ -898,6 +1025,49 @@ class HistoryDashboard(QMainWindow):
                     )
             except Exception:
                 pass
+            # Phase A v3 final fix: schedule the 22 lazy tab builders AFTER
+            # the interactive mark fires. Scheduling them in __init__ queued
+            # ~880ms of synchronous widget+import work ahead of first paint,
+            # blocking the interactive mark for 79.8s in the cold case.
+            try:
+                QTimer.singleShot(0, self._schedule_lazy_builders)
+            except Exception:
+                pass
+
+    def _schedule_lazy_builders(self):
+        """BUILD-018: Placeholders are now installed at _init_ui time and
+        click drives construction. This entry point is preserved for
+        back-compat callers (paintEvent) and as the post-paint signal that
+        the UI shell is ready — fire _on_rooms_loaded once, then no-op.
+        """
+        if getattr(self, "_lazy_scheduled_done", False):
+            return
+        self._lazy_scheduled_done = True
+        # UI shell is ready — placeholders are present, Chamber is built.
+        # Anything still pending is now click-driven, so unlock the splash.
+        try:
+            app = getattr(self.parent_app, "app", None)
+            if app is not None:
+                QTimer.singleShot(0, lambda: self.parent_app._on_rooms_loaded())
+        except Exception:
+            pass
+        if hasattr(self, "status") and self.status:
+            built = (self._workspace_factory.built_count()
+                     if self._workspace_factory else 0)
+            total = (self._workspace_factory.total_count()
+                     if self._workspace_factory else self._lazy_total)
+            self.status.showMessage(
+                f"Ready · {built}/{total} rooms built · others load on click")
+
+    def _run_lazy_builder_yielding(self, name, fn):
+        """BUILD-018: legacy entry point — defers to factory.activate via
+        the registered slot index. Kept for any direct callers."""
+        if self._workspace_factory is None:
+            return
+        idx = self._workspace_factory.name_to_index(name)
+        if idx is None:
+            return
+        self._workspace_factory.activate(idx)
 
     # ── UI ──────────────────────────────────────────────────
 
@@ -935,6 +1105,86 @@ class HistoryDashboard(QMainWindow):
         # Tabs
         self.tabs = QTabWidget()
         root.addWidget(self.tabs)
+
+        # BUILD-018 RULE 3 — Lazy workspace factory. Owns the placeholder
+        # installation and the click-driven widget construction. Installed
+        # BEFORE any builder runs so every addTab path goes through it.
+        try:
+            from ui.workspace_factory import LazyWorkspaceFactory
+            self._workspace_factory = LazyWorkspaceFactory(self.tabs, self)
+            self._workspace_factory.install_on(self.tabs)
+        except Exception as _wf_e:
+            self._workspace_factory = None
+            logging.getLogger("stratum.app").warning(
+                "LazyWorkspaceFactory unavailable: %s", _wf_e)
+
+        # BUILD-018 RULE 1 — register this dashboard as the canonical UI
+        # shell singleton so off-thread workers (DeferredWorkspaceLoader,
+        # DynamicWorkspaceSpawner) can find it without coupling.
+        try:
+            from runtime.singleton_registry import get_registry
+            get_registry().register("ui.dashboard", self)
+        except Exception:
+            pass
+
+        # BUILD-018 RULE 7 — hoist Maintenance cortex BEFORE any lazy
+        # builder can fire. Resolves the documented Perception → Maintenance
+        # cross-tab dependency: the cortex is now available regardless of
+        # which tab the user clicks first. Idempotent — bootstrap.phase_4
+        # is safe to call twice and the singleton is reused.
+        try:
+            from core.bootstrap import get_bootstrap
+            _bs = get_bootstrap()
+            _bs.phase_4_maintenance()
+            self._maint_cortex = _bs.get_maintenance_cortex()
+            self._maint_ui_state = _bs.get_maintenance_ui_state()
+            try:
+                from runtime.singleton_registry import get_registry
+                reg = get_registry()
+                if self._maint_cortex is not None:
+                    reg.register("maintenance.cortex", self._maint_cortex)
+                if self._maint_ui_state is not None:
+                    reg.register("maintenance.ui_state", self._maint_ui_state)
+            except Exception:
+                pass
+            # Start the cortex tick loop NOW so observer telemetry is hot
+            # before Perception (or anything else) is clicked. start() is
+            # safe to call again from _build_maintenance_tab — daemon
+            # threads guard against double-start internally.
+            try:
+                if self._maint_cortex is not None and hasattr(self._maint_cortex, "start"):
+                    self._maint_cortex.start()
+            except Exception:
+                pass
+        except Exception:
+            self._maint_cortex = None
+            self._maint_ui_state = None
+
+        # BUILD-018 RULE 5 — dynamic workspace book-keeping. Each entry maps
+        # a WorkspaceSession.session_id to its (slot_idx, RealmSessionTab).
+        # Boot tabs (PyramidChamber, Memory, …) are never in this dict and
+        # are protected from close requests via _on_tab_close_requested.
+        self._dynamic_workspaces: dict[str, dict] = {}
+        try:
+            self.tabs.setTabsClosable(True)
+            self.tabs.tabCloseRequested.connect(self._on_tab_close_requested)
+            self._boot_tab_count = 0   # set after registration completes
+        except Exception:
+            pass
+
+        # BUILD-018 RULE 4 — WorkspaceStateBridge: 1Hz snapshots projected
+        # to any tab that wants them. Cheap (psutil + tail-200KB sample).
+        try:
+            from runtime.view_model import WorkspaceStateBridge
+            self._workspace_bridge = WorkspaceStateBridge()
+            self._workspace_bridge.start(interval_ms=1000)
+            try:
+                from runtime.singleton_registry import get_registry
+                get_registry().register("ui.state_bridge", self._workspace_bridge)
+            except Exception:
+                pass
+        except Exception:
+            self._workspace_bridge = None
 
         # Repair bar — sits between tabs and status bar.
         # Hidden by default; surfaces when DetectorEngine finds malfunctions.
@@ -991,6 +1241,9 @@ class HistoryDashboard(QMainWindow):
         self._lazy_builders: list[tuple[str, callable]] = [
             # Order matters: build cheap/critical tabs first so they're
             # interactive ASAP. Heavy ones (Palace, Pyramid, SimCore) trail.
+            # BUILD-022 — Production Console is the primary interaction surface.
+            ("◇ Production",    self._build_production_console_tab),
+            ("PyramidChamber",   self._build_pyramid_chamber_tab),
             ("Memory & Recall",  self._build_memory_tab),
             ("Chat",             self._build_chat_tab),
             ("Ground",           self._build_ground_tab),
@@ -1011,15 +1264,73 @@ class HistoryDashboard(QMainWindow):
             ("Palace",           self._build_mempalace_tab),
             ("Diagnostics",      self._build_diagnostics_tab),
             ("Maintenance",      self._build_maintenance_tab),
+            ("Perception",       self._build_perception_tab),
+            ("Knowledge",        self._build_knowledge_tab),
+            ("Simulator",        self._build_simulator_tab),
+            ("Ops",               self._build_ops_tab),
             ("Portal",           self._build_portal_tab),
             ("Manifest",         self._build_manifest_tab),
         ]
         self._lazy_total = len(self._lazy_builders)
         self._lazy_done  = 0
-        # Stagger each builder so the event loop ticks between constructions
-        # — keeps the UI responsive while tabs assemble.
-        for i, (name, fn) in enumerate(self._lazy_builders):
-            QTimer.singleShot(40 * (i + 1), lambda n=name, f=fn: self._run_lazy_builder(n, f))
+        self._lazy_scheduled_done = False
+
+        # BUILD-018 RULE 3 + RULE 9 — register all builders as placeholders
+        # NOW so the tab strip is fully present at first paint, but only the
+        # currently-selected tab (Chamber, index 0) actually constructs its
+        # widget. Every other tab waits until the user clicks it. This is
+        # the canonical decoupling of UI lifecycle from workspace lifecycle.
+        if self._workspace_factory is not None:
+            for _name, _fn in self._lazy_builders:
+                try:
+                    self._workspace_factory.register(_name, _fn)
+                except Exception as _reg_e:
+                    logging.getLogger("stratum.app").warning(
+                        "workspace_factory.register('%s') failed: %s",
+                        _name, _reg_e)
+            # Force-build the entry tab so the user sees the Production
+            # Console on first paint (BUILD-022 primary surface). Chamber
+            # is still warmed eagerly so its presence layer + engine
+            # warmup hits before the user clicks over.
+            try:
+                console_idx = self._workspace_factory.name_to_index("◇ Production")
+                if console_idx is not None:
+                    self._workspace_factory.activate(console_idx)
+                    self.tabs.setCurrentIndex(console_idx)
+                chamber_idx = self._workspace_factory.name_to_index("PyramidChamber")
+                if chamber_idx is not None:
+                    self._workspace_factory.activate(chamber_idx)
+                    # Wire realm_dispatched → dynamic spawn (after build only —
+                    # placeholder stubs don't have the signal).
+                    chamber_widget = self._workspace_factory.widget_for("PyramidChamber")
+                    if chamber_widget is not None and hasattr(chamber_widget, "realm_dispatched"):
+                        try:
+                            chamber_widget.realm_dispatched.connect(
+                                self._on_chamber_realm_dispatched
+                            )
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            # Snapshot the boot-tab count — any addTab beyond this is dynamic.
+            try:
+                self._boot_tab_count = self.tabs.count()
+                # Strip close buttons from boot tabs (visual reinforcement of
+                # _on_tab_close_requested's index guard).
+                from PyQt6.QtWidgets import QTabBar
+                bar = self.tabs.tabBar()
+                for _i in range(self._boot_tab_count):
+                    for _side in (QTabBar.ButtonPosition.RightSide,
+                                  QTabBar.ButtonPosition.LeftSide):
+                        try:
+                            _btn = bar.tabButton(_i, _side)
+                            if _btn is not None:
+                                _btn.deleteLater()
+                            bar.setTabButton(_i, _side, None)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
 
         # Status bar
         self.status = QStatusBar()
@@ -1031,35 +1342,135 @@ class HistoryDashboard(QMainWindow):
         self.progress.hide()
         self.status.addPermanentWidget(self.progress)
 
-    # ── Layer 3: staggered tab body construction ────────────────────────────
-    def _run_lazy_builder(self, name: str, fn):
-        """Execute one tab-body builder. Runs on the main thread but is
-        scheduled via QTimer so the event loop yields between tabs. Errors
-        are logged but never propagate — one failed tab can't kill the boot.
+    def _install_tab(self, widget) -> int:
+        """BUILD-018 builder helper — replaces every direct
+        ``self.tabs.addTab(widget, label)`` site inside ``_build_*_tab``
+        methods. Label was already set at LazyWorkspaceFactory.register()
+        time; this swap preserves the label and the slot index.
+
+        Returns the slot index (so legacy capture sites like
+        ``self._portal_tab_index = self._install_tab(...)`` keep working).
+        Falls back to a plain addTab if the factory is unavailable
+        (defensive — the app still launches with no decoupling).
         """
-        if name in self._lazy_loaded:
+        if self._workspace_factory is None:
+            return self.tabs.addTab(widget, "untitled")
+        slot = self._workspace_factory.current_slot()
+        self._workspace_factory.install_widget(widget)
+        return slot if slot is not None else -1
+
+    # ── BUILD-018 RULE 5: dynamic workspace spawning ───────────────────────
+    def _on_chamber_realm_dispatched(self, realm_id: str, intent: str, plan) -> None:
+        """Slot connected to PyramidChamberPanel.realm_dispatched.
+        Allocates a WorkspaceSession and mounts a RealmSessionTab."""
+        try:
+            from runtime.workspace_spawner import get_workspace_spawner
+            from ui.realm_session_tab import RealmSessionTab, REALM_GLYPHS
+        except Exception as e:
+            logging.getLogger("stratum.app").warning(
+                "spawn imports unavailable: %s", e)
+            return
+        spawner = get_workspace_spawner()
+        session = spawner.spawn(intent or "", realm_id, plan)
+        if session is None:
+            try:
+                self.status.showMessage(
+                    f"Workspace cap reached ({spawner.stats()['max_active']}) — close one first")
+            except Exception:
+                pass
             return
         try:
-            if hasattr(self, "status") and self.status:
-                self.status.showMessage(f"Loading {name}…  ({self._lazy_done + 1}/{self._lazy_total})")
-            fn()
-            self._lazy_loaded.add(name)
-            self._lazy_done += 1
-            if self._lazy_done >= self._lazy_total:
-                if hasattr(self, "status") and self.status:
-                    self.status.showMessage(f"All {self._lazy_total} rooms loaded ✓")
-                # Signal AIMonitorApp that Layer 3 is complete — splash can close
-                app = getattr(self.parent_app, "app", None)
-                if app is not None:
-                    try:
-                        QTimer.singleShot(0, lambda: self.parent_app._on_rooms_loaded())
-                    except Exception as e:
-                        _log.warning(f'caught exception: {e}')
-        except Exception as exc:
-            logging.getLogger("stratum.app").exception(
-                "tab builder failed: %s — %s", name, exc
-            )
-            self._lazy_done += 1
+            tab = RealmSessionTab(session, self)
+        except Exception as e:
+            logging.getLogger("stratum.app").warning(
+                "RealmSessionTab build failed: %s", e)
+            spawner.close(session.session_id)
+            return
+        glyph = REALM_GLYPHS.get(realm_id, "◈")
+        snippet = (intent or "")[:24]
+        title = f"{glyph} {realm_id.title()} · {snippet}"
+        idx = self.tabs.addTab(tab, title)
+        self._dynamic_workspaces[session.session_id] = {
+            "slot_idx": idx,
+            "widget":   tab,
+            "session":  session,
+        }
+        try:
+            self.tabs.setCurrentIndex(idx)
+        except Exception:
+            pass
+        # Bridge announcement so other surfaces can react.
+        try:
+            if self._workspace_bridge is not None:
+                self._workspace_bridge.emit_workspace_event(
+                    "spawn",
+                    {"session_id": session.session_id, "realm": realm_id,
+                     "intent": (intent or "")[:160], "slot_idx": idx},
+                )
+        except Exception:
+            pass
+
+    def _on_tab_close_requested(self, idx: int) -> None:
+        """Boot tabs are immortal; only dynamic workspaces close."""
+        if idx < getattr(self, "_boot_tab_count", 1):
+            return
+        # Find the dynamic workspace at this index.
+        sid_to_close = None
+        for sid, rec in self._dynamic_workspaces.items():
+            if rec.get("slot_idx") == idx:
+                sid_to_close = sid
+                break
+        if sid_to_close is None:
+            try:
+                self.tabs.removeTab(idx)
+            except Exception:
+                pass
+            return
+        self._close_dynamic_workspace(sid_to_close)
+
+    def _close_dynamic_workspace(self, session_id: str) -> None:
+        rec = self._dynamic_workspaces.pop(session_id, None)
+        if rec is None:
+            return
+        try:
+            from runtime.workspace_spawner import get_workspace_spawner
+            get_workspace_spawner().close(session_id)
+        except Exception:
+            pass
+        idx = rec.get("slot_idx")
+        widget = rec.get("widget")
+        try:
+            if idx is not None and 0 <= idx < self.tabs.count():
+                self.tabs.removeTab(idx)
+        except Exception:
+            pass
+        # Re-shift the slot_idx of remaining dynamic workspaces
+        for other in self._dynamic_workspaces.values():
+            try:
+                if other.get("slot_idx", 0) > (idx or 0):
+                    other["slot_idx"] -= 1
+            except Exception:
+                pass
+        try:
+            if widget is not None:
+                widget.deleteLater()
+        except Exception:
+            pass
+
+    # ── BUILD-018: legacy direct builder invocation ─────────────────────────
+    def _run_lazy_builder(self, name: str, fn):
+        """Legacy entry point preserved for any direct callers. Defers to
+        the LazyWorkspaceFactory which handles placeholder swap, one-shot
+        guard, receipt emission, and exception containment uniformly.
+        """
+        if self._workspace_factory is None:
+            return
+        idx = self._workspace_factory.name_to_index(name)
+        if idx is None:
+            return
+        self._workspace_factory.activate(idx)
+        self._lazy_loaded.add(name)
+        self._lazy_done = self._workspace_factory.built_count()
 
     def _open_pyramid(self):
         try:
@@ -1146,7 +1557,7 @@ class HistoryDashboard(QMainWindow):
         split.setStretchFactor(1, 2)
         lay.addWidget(split)
 
-        self.tabs.addTab(w, "Memory & Recall")
+        self._install_tab(w)
 
     def _build_chat_tab(self):
         w = QWidget()
@@ -1173,31 +1584,110 @@ class HistoryDashboard(QMainWindow):
         # Input row
         il = QHBoxLayout()
         self.chat_input = QLineEdit()
-        self.chat_input.setPlaceholderText("Type a message… (Enter to send)")
+        self.chat_input.setPlaceholderText(
+            "Type a message — or use /theme, /cast, /conjour for the Oracle…"
+        )
         self.chat_input.setStyleSheet(
             "background:#010409; border:1px solid #30363d; border-radius:4px; "
             "padding:8px; color:#e6edf3; font-size:13px;"
         )
         self.chat_input.returnPressed.connect(self.send_chat)
+
+        # ORACLE GLOW — violet border the instant the input starts with "/".
+        # textChanged is light; setStyleSheet on a single widget is fast.
+        def _on_chat_input_changed(txt: str):
+            if txt.startswith("/"):
+                self._chat_input_set_oracle_border()
+            else:
+                self._chat_input_set_normal_border()
+        self.chat_input.textChanged.connect(_on_chat_input_changed)
+
         send_btn = QPushButton("Send")
-        send_btn.setFixedWidth(80)
+        send_btn.setFixedWidth(72)
         send_btn.clicked.connect(self.send_chat)
 
-        save_btn = QPushButton("Save to Obsidian")
+        # ── Oracle action buttons — each composes a meta-prompt for the
+        # current input, then submits it through send_chat. The operator
+        # gets a one-click way to invoke a specific reasoning mode without
+        # having to type the slash command.
+        def _compose_and_send(prefix: str, fallback_placeholder: str):
+            cur = self.chat_input.text().strip()
+            if not cur:
+                self.chat_input.setPlaceholderText(fallback_placeholder)
+                return
+            self.chat_input.setText(prefix + cur)
+            self.send_chat()
+
+        plan_btn = QPushButton("◇ Plan")
+        plan_btn.setToolTip("Ask WON to plan a path forward from the current input")
+        plan_btn.clicked.connect(lambda: _compose_and_send(
+            "Plan a sequenced approach for: ",
+            "Type a goal — Plan turns it into steps.",
+        ))
+
+        learn_btn = QPushButton("◈ Learn")
+        learn_btn.setToolTip("Ask WON to extract and store learnings from the current input")
+        learn_btn.clicked.connect(lambda: _compose_and_send(
+            "Extract durable learnings from this and store them: ",
+            "Paste a note — Learn distills it.",
+        ))
+
+        summarize_btn = QPushButton("⊕ Summarize")
+        summarize_btn.setToolTip("Ask WON to produce a tight synopsis of the current input")
+        summarize_btn.clicked.connect(lambda: _compose_and_send(
+            "Produce a tight synopsis (3-5 bullet points) of: ",
+            "Paste any text — Summarize compresses it.",
+        ))
+
+        search_btn = QPushButton("⌕ Search")
+        search_btn.setToolTip("Search WON memory for entries relevant to the current input")
+        search_btn.clicked.connect(lambda: _compose_and_send(
+            "Search my memory for everything relevant to: ",
+            "Type a query — Search retrieves matching memory.",
+        ))
+
+        cast_btn = QPushButton("✦ Cast")
+        cast_btn.setToolTip(
+            "Invoke the 4-agent pyramid ensemble (Validation/Implementation/"
+            "Planner/Strategist + Synthesis) on the current input"
+        )
+        cast_btn.clicked.connect(lambda: _compose_and_send(
+            "/cast ",
+            "Type a question — Cast convenes the four agents.",
+        ))
+
+        save_btn = QPushButton("⎇ Save")
+        save_btn.setToolTip("Save this chat to Obsidian as a markdown note")
         save_btn.clicked.connect(self.save_chat_to_obsidian)
 
-        clear_btn = QPushButton("Clear")
+        clear_btn = QPushButton("⊘ Clear")
+        clear_btn.setToolTip("Clear the chat history shown here (memory is preserved)")
         clear_btn.clicked.connect(self._clear_chat)
+
+        # Style the Oracle action buttons uniformly so they feel like a set.
+        for _b in (plan_btn, learn_btn, summarize_btn, search_btn, cast_btn):
+            _b.setStyleSheet(
+                "QPushButton { background:#1a1428; color:#c9d1d9;"
+                f" border:1px solid {self.ORACLE_VIOLET}; border-radius:5px;"
+                " padding:5px 10px; font-size:11px; }"
+                f"QPushButton:hover {{ background:#2a1f3d; color:#fff;"
+                f" border:1px solid {self.ORACLE_VIOLET}; }}"
+            )
 
         il.addWidget(self.chat_input)
         il.addWidget(send_btn)
+        il.addWidget(cast_btn)
+        il.addWidget(plan_btn)
+        il.addWidget(learn_btn)
+        il.addWidget(summarize_btn)
+        il.addWidget(search_btn)
         il.addWidget(save_btn)
         il.addWidget(clear_btn)
         lay.addLayout(il)
 
         self._chat_log = []   # list of {"role": ..., "text": ...}
         self._won_greeted = False   # greet once per session only
-        self.tabs.addTab(w, "Chat")
+        self._install_tab(w)
 
     def _clear_chat(self):
         self.chat_display.clear()
@@ -1321,20 +1811,32 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
         if not text: return
         self.chat_input.clear()
 
+        # ── ORACLE COMMANDS ───────────────────────────────────────────────
+        # A line beginning with "/" short-circuits standard chat and invokes
+        # a deep operation. Commands ALWAYS run in a worker thread.
+        #   /theme   <description>  — conjour and apply an app-wide theme
+        #   /conjour <description>  — alias for /theme (room restyling)
+        #   /cast    <prompt>       — run the 4-agent pyramid ensemble
+        #   /help                   — list commands
+        if text.startswith("/"):
+            self._oracle_dispatch(text)
+            self._chat_input_set_normal_border()
+            return
+
         # ── Quantum context: observe intent before responding ──
         if QUANTUM_OK:
             try:
                 ctx = " ".join(e["text"][:100] for e in self._chat_log[-3:])
                 _quantum.observe(text, ctx)
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                _classified_failure(e, "app_py_caught_exception")
 
         # ── Harvester: capture input as potential context ──────
         if HARVEST_OK:
             try:
                 _harvest.capture(text, source="chat_input")
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                _classified_failure(e, "app_py_caught_exception")
 
         self.chat_display.append(f'\n<b style="color:#58a6ff;">You:</b> {text}\n')
         self._chat_log.append({"role": "user", "text": text})
@@ -1349,20 +1851,23 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
         self._busy(True)
         self.chat_display.append('<i style="color:#8b949e;">⟳ WON reasoning…</i>')
 
-        # Pull memory for context
-        memory_entries = []
-        if wp:
-            try:
-                # Search memory for relevant entries first
-                memory_entries = wp.search(text, limit=5) or wp.recall(limit=5)
-            except Exception:
-                try: memory_entries = wp.recall(limit=5)
-                except Exception: pass
-
-        prompt   = self._build_reasoning_prompt(text, memory_entries, self._chat_log[:-1])
-        chat_log = list(self._chat_log)
+        # Move WON memory lookup + prompt build INTO the worker. Pre-fix these
+        # ran synchronously on the UI thread and could hang for seconds if the
+        # daemon was restarting or the index was rebuilding.
+        chat_log_snapshot = list(self._chat_log)
 
         def reason_and_respond():
+            # Pull memory for context (now on worker thread)
+            memory_entries = []
+            if wp:
+                try:
+                    memory_entries = wp.search(text, limit=5) or wp.recall(limit=5)
+                except Exception:
+                    try: memory_entries = wp.recall(limit=5)
+                    except Exception: pass
+
+            prompt = self._build_reasoning_prompt(text, memory_entries, chat_log_snapshot[:-1])
+
             # Use grounded inference (anti-hallucination) if available
             if AH_OK and memory_entries:
                 evidence = [e.get("content","")[:300] for e in memory_entries[:5]]
@@ -1378,14 +1883,16 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
                     if grounded.get("response"):
                         quality = "high" if grounded.get("confidence", 0) > 0.7 else "standard"
                         return {"response": grounded["response"], "quality": quality,
-                                "confidence": grounded.get("confidence")}
+                                "confidence": grounded.get("confidence"),
+                                "memory_count": len(memory_entries)}
                 except Exception as e:
-                    _log.warning(f'caught exception: {e}')
+                    _classified_failure(e, "app_py_caught_exception")
 
             # Fallback: standard LM Studio / Ollama call
             response = self._ollama_call(prompt)
             quality  = "high" if len(response) > 200 and "→" in response else "standard"
-            return {"response": response, "quality": quality, "confidence": None}
+            return {"response": response, "quality": quality, "confidence": None,
+                    "memory_count": len(memory_entries)}
 
         def done(result):
             self._busy(False)
@@ -1418,10 +1925,193 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
             # Auto-update status
             self.status.showMessage(
                 f"Exchange indexed · Quality: {quality} · "
-                f"Memory entries: {len(memory_entries)} recalled"
+                f"Memory entries: {result.get('memory_count', 0)} recalled"
             )
 
         self._run_in_thread(reason_and_respond, on_done=done)
+
+    # ── ORACLE — slash-command surface for WON + 4-agent operations ────
+    ORACLE_VIOLET = "#a371f7"
+
+    def _chat_input_set_oracle_border(self):
+        """Violet glow on the input when the user is composing an Oracle
+        command (line starts with '/'). Purely cosmetic; never blocks input."""
+        try:
+            self.chat_input.setStyleSheet(
+                "QLineEdit { background:#0d1117; color:#c9d1d9;"
+                f" border:2px solid {self.ORACLE_VIOLET}; border-radius:4px;"
+                " padding:6px 8px; font-size:13px; }"
+            )
+        except Exception: pass
+
+    def _chat_input_set_normal_border(self):
+        try:
+            self.chat_input.setStyleSheet("")
+        except Exception: pass
+
+    def _oracle_dispatch(self, text: str):
+        """Route /theme, /conjour, /cast, /help to Oracle handlers.
+        All heavy work runs in worker threads via _run_in_thread."""
+        self.chat_display.append(
+            f'\n<b style="color:{self.ORACLE_VIOLET};">✦ Oracle:</b> '
+            f'<span style="color:#c9d1d9;">{text}</span>\n'
+        )
+        self._chat_log.append({"role": "oracle_command", "text": text})
+
+        parts = text[1:].split(None, 1)
+        cmd = parts[0].lower() if parts else ""
+        arg = parts[1].strip() if len(parts) > 1 else ""
+
+        if cmd == "help" or not cmd:
+            for line in (
+                "Oracle commands —",
+                "  /theme &lt;description&gt;       — conjour a new theme across the app",
+                "  /conjour &lt;description&gt;     — restyle this room from another perspective",
+                "  /cast &lt;prompt&gt;             — invoke the 4-agent pyramid ensemble",
+                "  /orchestrate &lt;intent&gt;      — compile intent into a structured execution plan",
+                "  /help                          — this list",
+            ):
+                self.chat_display.append(
+                    f'<span style="color:{self.ORACLE_VIOLET};">{line}</span>'
+                )
+            return
+
+        if cmd == "orchestrate":
+            if not arg:
+                self.chat_display.append(
+                    f'<span style="color:#f0883e;">✦ speak the intent: '
+                    f'/orchestrate generate a tactical dashboard</span>'
+                )
+                return
+            try:
+                from kernel.intent_orchestrator import orchestrate, render_plan
+                plan = orchestrate(arg)
+                rendered = render_plan(plan)
+                # Wrap in <pre> so the monospace alignment survives in QTextEdit
+                safe = (rendered
+                        .replace("&", "&amp;")
+                        .replace("<", "&lt;")
+                        .replace(">", "&gt;"))
+                self.chat_display.append(
+                    f'<pre style="color:{self.ORACLE_VIOLET}; font-family:Consolas,monospace;'
+                    f' font-size:11px; white-space:pre;">{safe}</pre>'
+                )
+            except Exception as e:
+                self.chat_display.append(
+                    f'<span style="color:#f85149;">✦ orchestration failed — {e}</span>'
+                )
+            return
+
+        if cmd in ("theme", "conjour"):
+            if not arg:
+                self.chat_display.append(
+                    f'<span style="color:#f0883e;">✦ describe the vibe: '
+                    f'/{cmd} cyberpunk neon mist</span>'
+                )
+                return
+            self._busy(True)
+            self.chat_display.append(
+                f'<i style="color:{self.ORACLE_VIOLET};">⟳ The Oracle weaves a theme '
+                f'from "{arg[:80]}"…</i>'
+            )
+            prompt = arg
+            def _gen_theme():
+                try:
+                    return SelfModEngine.generate_theme_from_prompt(prompt)
+                except Exception as e:
+                    return {"_error": str(e)}
+            def _apply(result):
+                self._busy(False)
+                if not isinstance(result, dict) or "_error" in result:
+                    err = (result.get("_error") if isinstance(result, dict)
+                           else "no theme returned")
+                    self.chat_display.append(
+                        f'<span style="color:#f85149;">✦ theme conjuration '
+                        f'failed — {err}</span>'
+                    )
+                    return
+                try:
+                    key = register_custom_theme(
+                        f"oracle_{int(time.time())}", result,
+                    )
+                    apply_app_theme(key)
+                    self.chat_display.append(
+                        f'<span style="color:{self.ORACLE_VIOLET};">'
+                        f'✦ The room shifts. Theme "{key}" applied.</span>'
+                    )
+                    try:
+                        from truth.receipt_engine import record_execution
+                        record_execution(
+                            task="oracle_theme_cast",
+                            executor="HistoryDashboard._oracle_dispatch",
+                            artifact=None,
+                            duration_ms=0.0,
+                            verified=True,
+                            compute_sha256=False,
+                            evidence={"prompt": prompt[:240],
+                                      "theme_key": key,
+                                      "colors": result},
+                        )
+                    except Exception: pass
+                except Exception as e:
+                    self.chat_display.append(
+                        f'<span style="color:#f85149;">✦ apply failed — {e}</span>'
+                    )
+            self._run_in_thread(_gen_theme, on_done=_apply)
+            return
+
+        if cmd == "cast":
+            if not arg:
+                self.chat_display.append(
+                    f'<span style="color:#f0883e;">✦ describe the cast: '
+                    f'/cast what should we build next?</span>'
+                )
+                return
+            self._busy(True)
+            self.chat_display.append(
+                f'<i style="color:{self.ORACLE_VIOLET};">⟳ The four agents convene '
+                f'around "{arg[:80]}"…</i>'
+            )
+            cast_prompt = arg
+            def _do_cast():
+                try:
+                    from pyramid_ensemble import EnsembleOrchestrator
+                    eo = EnsembleOrchestrator()
+                    return {"verdict": eo.run(cast_prompt)}
+                except Exception as e:
+                    return {"_error": str(e)}
+            def _show(result):
+                self._busy(False)
+                if isinstance(result, dict) and "_error" in result:
+                    self.chat_display.append(
+                        f'<span style="color:#f85149;">✦ cast failed — '
+                        f'{result["_error"]}</span>'
+                    )
+                    return
+                verdict = (result.get("verdict") if isinstance(result, dict)
+                           else result)
+                self.chat_display.append(
+                    f'<b style="color:{self.ORACLE_VIOLET};">✦ Oracle synthesis:</b>'
+                    f'<br><span style="color:#c9d1d9;">{verdict}</span><br>'
+                )
+                try:
+                    from truth.receipt_engine import record_execution
+                    record_execution(
+                        task="oracle_cast",
+                        executor="HistoryDashboard._oracle_dispatch",
+                        artifact=None,
+                        duration_ms=0.0,
+                        verified=True,
+                        compute_sha256=False,
+                        evidence={"prompt": cast_prompt[:240]},
+                    )
+                except Exception: pass
+            self._run_in_thread(_do_cast, on_done=_show)
+            return
+
+        self.chat_display.append(
+            f'<span style="color:#f0883e;">✦ unknown command "/{cmd}" — try /help</span>'
+        )
 
     def save_chat_to_obsidian(self):
         if not self._chat_log:
@@ -1490,7 +2180,7 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
         self.ground_text.setPlaceholderText("Ground state loads here…")
         lay.addWidget(self.ground_text)
 
-        self.tabs.addTab(w, "Shared Ground")
+        self._install_tab(w)
 
     def _build_opt_tab(self):
         w = QWidget()
@@ -1514,7 +2204,7 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
         ab.addStretch()
         lay.addLayout(ab)
 
-        self.tabs.addTab(w, "Optimization")
+        self._install_tab(w)
 
     def _build_guide_tab(self):
         """
@@ -1623,7 +2313,7 @@ End with a one-line "→ Forward Vector:" showing the logical next step.{greetin
         split.setStretchFactor(1, 1)
         lay.addWidget(split)
 
-        self.tabs.addTab(w, "Guide ◈")
+        self._install_tab(w)
         QTimer.singleShot(800, self._refresh_guide)
 
     def _build_guide_html(self) -> str:
@@ -1724,39 +2414,51 @@ Gemini gets the ground state injected at session start. Both AIs share the same 
 """
 
     def _refresh_guide(self):
-        """Update the status banner with live system health."""
+        """Update the status banner with live system health.
+
+        Dispatches the probe to a worker thread. Pre-fix this ran on UI
+        thread and `requests.get` against Ollama with 2s timeout could
+        block the main thread for 2s every refresh."""
+        if getattr(self, "_guide_refresh_in_flight", False):
+            return
+        self._guide_refresh_in_flight = True
+        self._run_in_thread(self._collect_guide_status,
+                             on_done=self._apply_guide_status)
+
+    def _collect_guide_status(self) -> dict:
+        """Worker-thread probe. Returns dict consumed by _apply_guide_status."""
         wp  = get_won_pipeline()
         pc  = get_perception()
-
-        pipeline_ok  = wp is not None
-        perception_ok = pc is not None
-
-        # Memory count
-        mem_count = 0
+        out = {
+            "pipeline_ok":   wp is not None,
+            "perception_ok": pc is not None,
+            "mem_count":     0,
+            "ollama_ok":     False,
+        }
         if wp:
-            try:
-                s = wp.stats()
-                mem_count = s.get("total_entries", 0)
+            try: out["mem_count"] = wp.stats().get("total_entries", 0)
             except Exception: pass
-
-        # Ollama status
-        ollama_ok = False
         try:
             r = requests.get("http://localhost:11434/api/tags", timeout=2)
-            ollama_ok = r.status_code == 200
-        except Exception: pass
+            out["ollama_ok"] = (r.status_code == 200)
+        except Exception:
+            pass
+        return out
 
-        # Vault
+    def _apply_guide_status(self, result):
+        """UI-thread slot — apply worker result to the guide status banner."""
+        self._guide_refresh_in_flight = False
+        if not isinstance(result, dict):
+            return
         vault = Path(os.environ.get("WON_VAULT",
                      str(Path.home() / "Documents" / "Knowledge-Base")))
-
         def tick(ok): return "✓" if ok else "✗"
-
+        pipeline_ok = result.get("pipeline_ok", False)
         status_text = (
             f"Pipeline {tick(pipeline_ok)}  ·  "
-            f"Perception {tick(perception_ok)}  ·  "
-            f"Ollama/Mistral {tick(ollama_ok)}  ·  "
-            f"Memory: {mem_count} entries  ·  "
+            f"Perception {tick(result.get('perception_ok'))}  ·  "
+            f"Ollama/Mistral {tick(result.get('ollama_ok'))}  ·  "
+            f"Memory: {result.get('mem_count',0)} entries  ·  "
             f"Vault: {vault.name} {'✓' if vault.exists() else '✗'}  ·  "
             f"WON_PATH: {os.environ.get('WON_PATH', 'not set')}"
         )
@@ -1996,7 +2698,7 @@ Question: {question}"""
         )
         lay.addWidget(self.integration_output)
 
-        self.tabs.addTab(w, "Integrations ⬡")
+        self._install_tab(w)
         QTimer.singleShot(1000, self._check_integrations)
 
     def _integ_log(self, msg: str):
@@ -2342,7 +3044,7 @@ Question: {question}"""
         lay.addWidget(split)
 
         self._agent_loop = None   # lazy init
-        self.tabs.addTab(w, "Agent API ◈")
+        self._install_tab(w)
 
     def _section_label(self, text: str) -> QLabel:
         lbl = QLabel(text)
@@ -2610,7 +3312,7 @@ Question: {question}"""
         self.training_response.setPlaceholderText("Save your profile and WON will respond here…")
         lay.addWidget(self.training_response)
 
-        self.tabs.addTab(w, "Training ◈")
+        self._install_tab(w)
 
     def _save_training(self):
         global CHAPERONE_PROMPT
@@ -2660,39 +3362,63 @@ Question: {question}"""
 
     def _build_convprog_tab(self):
         """
-        Conversational Programming — Dan speaks, WON builds.
-        No syntax. No manual editing. Just intent → working code.
+        ⚒ CODEFORGE — speak intent, WON forges the code.
+        Visual rebuild (2026-05-18): the forge metaphor is now explicit.
+        Heat = active reasoning. Anvil = the diff. Temper/Discard = approval.
         """
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(14, 14, 14, 14)
-        lay.setSpacing(8)
+        lay.setSpacing(10)
 
-        # Header
-        hdr = QHBoxLayout()
-        hdr_lbl = QLabel("CODEFORGE  —  WON's Programming Architect  ·  Speak it. WON builds it.")
-        hdr_lbl.setStyleSheet("color:#58a6ff; font-weight:bold; font-size:14px;")
-        hdr.addWidget(hdr_lbl)
-        hdr.addStretch()
+        # ── Forge banner ──────────────────────────────────────────────────
+        banner = QWidget()
+        banner.setStyleSheet(
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            "stop:0 #2d1759, stop:0.5 #ff5722, stop:1 #2d1759); "
+            "border: 2px solid #ffce28; border-radius:8px; padding:8px;"
+        )
+        bl = QHBoxLayout(banner)
+        bl.setContentsMargins(14, 6, 14, 6)
+        hdr_lbl = QLabel("⚒  CODEFORGE  —  THE ANVIL OF WON")
+        hdr_lbl.setStyleSheet(
+            "color:#fff5e0; font-weight:bold; font-size:16px; letter-spacing:3px;"
+            " background: transparent;"
+        )
+        bl.addWidget(hdr_lbl)
+        bl.addStretch()
+        # Forge state pill — switches text on _cp_send / _cp_approve / _cp_reject
+        self._cp_state_pill = QLabel("◯ FORGE COLD")
+        self._cp_state_pill.setStyleSheet(
+            "color:#1a0e3e; background:#ffce28; border-radius:10px;"
+            " padding:3px 12px; font-weight:bold; font-size:11px;"
+            " letter-spacing:1px;"
+        )
+        bl.addWidget(self._cp_state_pill)
         stats_lbl = QLabel("")
-        stats_lbl.setObjectName("section")
+        stats_lbl.setStyleSheet(
+            "color:#fff5e0; background: transparent; font-weight:bold;"
+            " padding-left:14px;"
+        )
         self._cp_stats_lbl = stats_lbl
-        hdr.addWidget(stats_lbl)
-        lay.addLayout(hdr)
+        bl.addWidget(stats_lbl)
+        lay.addWidget(banner)
 
         sub = QLabel(
-            "Describe any change in plain English. "
-            "WON reads the actual code, generates the change, tests it, "
-            "and asks for your approval before touching anything."
+            "Speak the change in plain English. WON reads the actual code, forges "
+            "the patch on the anvil, lets you inspect every line, and only writes "
+            "to disk after you TEMPER the result."
         )
-        sub.setStyleSheet("color:#8b949e; font-size:12px;")
+        sub.setStyleSheet("color:#ff8eb7; font-size:12px; padding:2px 6px;")
         sub.setWordWrap(True)
         lay.addWidget(sub)
 
-        # Example prompts
+        # ── Sparks (example prompts) ──────────────────────────────────────
         examples = QHBoxLayout()
-        example_lbl = QLabel("Try:")
-        example_lbl.setStyleSheet("color:#8b949e; font-size:11px;")
+        example_lbl = QLabel("SPARKS  ▸")
+        example_lbl.setStyleSheet(
+            "color:#ffce28; font-size:11px; font-weight:bold; letter-spacing:2px;"
+        )
         examples.addWidget(example_lbl)
         for ex in [
             "Make the Portal header bright orange",
@@ -2701,7 +3427,11 @@ Question: {question}"""
             "Add a clear button to the search bar",
         ]:
             b = QPushButton(ex)
-            b.setStyleSheet("font-size:10px; padding:3px 8px; color:#8b949e;")
+            b.setStyleSheet(
+                "background:#0a0420; color:#28e6ff; border:1px solid #ff2d92;"
+                " border-radius:4px; padding:4px 10px; font-size:10px;"
+                " font-weight:normal;"
+            )
             b.clicked.connect(lambda checked, t=ex: self._cp_set_request(t))
             examples.addWidget(b)
         examples.addStretch()
@@ -2755,9 +3485,11 @@ Question: {question}"""
         self.cp_input = QLineEdit()
         self.cp_input.setPlaceholderText("Tell WON what you want or describe the fix… (Enter)")
         self.cp_input.returnPressed.connect(self._cp_send)
-        cp_send = QPushButton("Build it")
+        cp_send = QPushButton("⚒  FORGE")
+        cp_send.setToolTip("Heat the request and forge a code patch on the anvil")
         cp_send.setStyleSheet(
-            "background:#238636; color:#fff; font-weight:bold; padding:7px 14px;"
+            "background:#ff5722; color:#fff5e0; font-weight:bold; padding:7px 16px;"
+            " border:2px solid #ffce28; border-radius:6px; letter-spacing:2px;"
         )
         cp_send.clicked.connect(self._cp_send)
         cp_input_row.addWidget(self.cp_input)
@@ -2766,15 +3498,21 @@ Question: {question}"""
 
         # Approve/Reject row
         ar_row = QHBoxLayout()
-        self.cp_approve_btn = QPushButton("✓ Apply Change")
+        self.cp_approve_btn = QPushButton("✓  TEMPER")
+        self.cp_approve_btn.setToolTip("Cool the patch into place — write it to disk")
         self.cp_approve_btn.setStyleSheet(
-            "background:#238636; color:#fff; font-weight:bold; padding:7px 14px;"
+            "background:#28e6ff; color:#1a0e3e; font-weight:bold; padding:7px 16px;"
+            " border:2px solid #28e6ff; border-radius:6px; letter-spacing:2px;"
         )
         self.cp_approve_btn.setEnabled(False)
         self.cp_approve_btn.clicked.connect(self._cp_approve)
 
-        self.cp_reject_btn = QPushButton("✗ Reject")
-        self.cp_reject_btn.setStyleSheet("color:#f85149; padding:7px 14px;")
+        self.cp_reject_btn = QPushButton("✗  DISCARD")
+        self.cp_reject_btn.setToolTip("Throw the patch back in the fire — drop it")
+        self.cp_reject_btn.setStyleSheet(
+            "background:#0a0420; color:#ff5722; font-weight:bold; padding:7px 16px;"
+            " border:2px solid #ff5722; border-radius:6px; letter-spacing:2px;"
+        )
         self.cp_reject_btn.setEnabled(False)
         self.cp_reject_btn.clicked.connect(self._cp_reject)
 
@@ -2829,7 +3567,7 @@ Question: {question}"""
         split.setStretchFactor(1, 1)
         lay.addWidget(split)
 
-        self.tabs.addTab(w, "CodeForge ◈")
+        self._install_tab(w)
         self._cp_engine = None
         QTimer.singleShot(500, self._cp_refresh_stats)
 
@@ -2855,16 +3593,28 @@ Question: {question}"""
                 f"Rate: {o.get('rate',0):.0%}"
             )
 
+    def _cp_set_pill(self, text: str, bg_color: str = "#ffce28"):
+        """Update the CodeForge state pill — cold/forging/anvil/tempered."""
+        try:
+            self._cp_state_pill.setText(text)
+            self._cp_state_pill.setStyleSheet(
+                f"color:#1a0e3e; background:{bg_color}; border-radius:10px;"
+                " padding:3px 12px; font-weight:bold; font-size:11px;"
+                " letter-spacing:1px;"
+            )
+        except Exception: pass
+
     def _cp_send(self):
         request = self.cp_input.text().strip()
         if not request:
             return
         self.cp_input.clear()
+        self._cp_set_pill("🔥 FORGING", "#ff5722")
 
         # Show user message
         ts = datetime.now().strftime("%H:%M")
         self.cp_conversation.append(
-            f'\n<b style="color:#58a6ff;">[{ts}] Dan:</b> {request}\n'
+            f'\n<b style="color:#ffce28;">[{ts}] Dan:</b> {request}\n'
         )
 
         engine = self._cp_get_engine()
@@ -2968,8 +3718,9 @@ Question: {question}"""
         if not engine:
             return
         result = engine.approve()
+        self._cp_set_pill("✓ TEMPERED", "#28e6ff")
         self.cp_conversation.append(
-            f'\n<b style="color:#3fb950;">WON:</b> {result.get("message","")}\n'
+            f'\n<b style="color:#28e6ff;">⚒ WON:</b> {result.get("message","")}\n'
         )
         self.cp_approve_btn.setEnabled(False)
         self.cp_reject_btn.setEnabled(False)
@@ -2980,8 +3731,9 @@ Question: {question}"""
         if not engine:
             return
         result = engine.reject()
+        self._cp_set_pill("◯ DISCARDED", "#ff5722")
         self.cp_conversation.append(
-            f'\n<b style="color:#f0883e;">WON:</b> {result.get("message","")}\n'
+            f'\n<b style="color:#ff5722;">⚒ WON:</b> {result.get("message","")}\n'
         )
         self.cp_approve_btn.setEnabled(False)
         self.cp_reject_btn.setEnabled(False)
@@ -3047,7 +3799,7 @@ Question: {question}"""
                 QTimer.singleShot(5000, lambda: self.badge.setStyleSheet(
                     "color:#3fb950; font-weight:bold;"))
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
 
     # ─────────────────────────────────────────────────────────────────────────
     # PULSE TAB — Live STRATUM Terminal
@@ -3111,7 +3863,7 @@ Question: {question}"""
         self._insight_bar.setWordWrap(True)
         lay.addWidget(self._insight_bar)
 
-        self.tabs.addTab(w, "STRATUM Pulse")
+        self._install_tab(w)
 
     def _pulse_start(self):
         if PULSE_OK:
@@ -3133,7 +3885,7 @@ Question: {question}"""
                 self._pulse_status_lbl.setText("● STOPPED")
                 self._pulse_status_lbl.setStyleSheet("color:#f85149; font-size:11px;")
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                _classified_failure(e, "app_py_caught_exception")
 
     def _pulse_clear(self):
         if hasattr(self, "pulse_terminal"):
@@ -3265,7 +4017,7 @@ Question: {question}"""
         agent_row.addWidget(spawn_btn)
         lay.addLayout(agent_row)
 
-        self.tabs.addTab(w, "Synthesis Lab")
+        self._install_tab(w)
 
     def _synth_refresh_status(self):
         if not SYNTH_OK:
@@ -3363,7 +4115,7 @@ Question: {question}"""
                 try:
                     os.startfile(p)
                 except Exception as e:
-                    _log.warning(f'caught exception: {e}')
+                    _classified_failure(e, "app_py_caught_exception")
             elif res.get("status") == "prompt_fallback":
                 self._synth_forge_display_spec(res.get("spec", {}))
             else:
@@ -3538,7 +4290,7 @@ Question: {question}"""
         split.setStretchFactor(1, 2)
         lay.addWidget(split, stretch=1)
 
-        self.tabs.addTab(w, "Strategy Matrix")
+        self._install_tab(w)
         QTimer.singleShot(800, self._strat_refresh)
 
     def _strat_refresh(self):
@@ -3736,7 +4488,7 @@ Question: {question}"""
         )
         lay.addWidget(self.entangle_lbl)
 
-        self.tabs.addTab(w, "Quantum Context")
+        self._install_tab(w)
 
     def _quantum_observe(self):
         text = self.quantum_input.text().strip()
@@ -3798,7 +4550,7 @@ Question: {question}"""
                         "  |  ".join(f"{t} ({c}×)" for t, c in related)
                     )
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
 
     def _build_pyramid_compartment_tab(self):
         """PYRAMID — cognitive OS coordinator (5 Rooms + IntentRouter + MemoryCore).
@@ -3919,7 +4671,7 @@ Question: {question}"""
         lay.addWidget(split, 1)
 
         self._py_compartment = None  # lazy-init on first execute
-        self.tabs.addTab(w, "▲ Pyramid")
+        self._install_tab(w)
         self._py_tab_index = self.tabs.indexOf(w)
 
     def _py_get_compartment(self):
@@ -3998,22 +4750,22 @@ Question: {question}"""
         Every action persists to ~/.stratum/lab/portfolio/<date>/<slug>/.
         """
         lab = LabWidget(self.parent_app)
-        self.tabs.addTab(lab, "🧪 Lab")
+        self._install_tab(lab)
 
     def _build_dna_tab(self):
         """🧬 FILE DNA — per-file signature panel (size/sha/lines/AST)."""
         self._dna_tab = DNAPanel(self.parent_app)
-        self.tabs.addTab(self._dna_tab, "🧬 DNA")
+        self._install_tab(self._dna_tab)
 
     def _build_mempalace_tab(self):
         """🏛 MEM PALACE — semantic vector recall + autonomous MemoryAgent."""
         self._mempalace_tab = MemPalacePanel(self.parent_app)
-        self.tabs.addTab(self._mempalace_tab, "🏛 Palace")
+        self._install_tab(self._mempalace_tab)
 
     def _build_diagnostics_tab(self):
         """🩺 DIAGNOSTICS — Reality Enforcement self-test."""
         self._diagnostics_tab = DiagnosticsPanel(self.parent_app)
-        self.tabs.addTab(self._diagnostics_tab, "🩺 Diagnostics")
+        self._install_tab(self._diagnostics_tab)
 
     def _build_maintenance_tab(self):
         """🛡 MAINTENANCE — bounded autonomous stability & repair via Cortex.
@@ -4021,21 +4773,188 @@ Question: {question}"""
         Single centralized MaintenanceCortex owns the coordinator, runtime,
         observers, stability engine, and repair history analyzer.
         Daemon thread; dies with the process.
+
+        Doctrine §3 P4 (NO ARCHITECTURAL DUPLICATION): if HOTWIRE Phase 4
+        already pre-constructed the cortex via core.bootstrap, reuse that
+        singleton. Otherwise fire Phase 4 now (it's idempotent).
         """
-        from maintenance import MaintenanceCortex, CortexConfig
-        from maintenance.observers import UIStateAgent
         from ui.maintenance_panel import MaintenancePanel
 
-        self._maint_ui_state = UIStateAgent()
-        self._maint_cortex = MaintenanceCortex.build_default(
-            ui_state_agent=self._maint_ui_state,
-            config=CortexConfig(tick_seconds=5.0),
-        )
+        try:
+            from core.bootstrap import get_bootstrap
+            bs = get_bootstrap()
+            bs.phase_4_maintenance()  # idempotent — no-op if already done
+            self._maint_cortex = bs.get_maintenance_cortex()
+            self._maint_ui_state = bs.get_maintenance_ui_state()
+        except Exception:
+            self._maint_cortex = None
+            self._maint_ui_state = None
+
+        if self._maint_cortex is None:
+            # Fallback: bootstrap unavailable in this build — construct directly.
+            from maintenance import MaintenanceCortex, CortexConfig
+            from maintenance.observers import UIStateAgent
+            self._maint_ui_state = UIStateAgent()
+            self._maint_cortex = MaintenanceCortex.build_default(
+                ui_state_agent=self._maint_ui_state,
+                config=CortexConfig(tick_seconds=5.0),
+            )
         self._maintenance_tab = MaintenancePanel(
             self._maint_cortex.coordinator, self._maint_cortex.runtime, self,
         )
-        self.tabs.addTab(self._maintenance_tab, "🛡 Maintenance")
+        self._install_tab(self._maintenance_tab)
         self._maint_cortex.start()
+
+    def _build_ops_tab(self):
+        """📊 OPS — live operational view: state badge, boot timing, stability
+        gauge, repair history, transition log. Pure View — OpsDashboardPanel
+        internally guards every subsystem read.
+        """
+        from ui.ops_dashboard import OpsDashboardPanel
+        self._ops_tab = OpsDashboardPanel(self)
+        self._install_tab(self._ops_tab)
+
+    def _build_perception_tab(self):
+        """📊 PERCEPTION — live observer telemetry (Genesis Organ 2). Reuses
+        the bootstrap-prebuilt MaintenanceCortex; the panel polls
+        runtime.last_outcomes on a 2s QTimer (UI thread, non-blocking)."""
+        try:
+            from core.bootstrap import get_bootstrap
+            cortex = get_bootstrap().get_maintenance_cortex()
+        except Exception:
+            cortex = getattr(self, "_maint_cortex", None)
+        if cortex is None:
+            from PyQt6.QtWidgets import QLabel
+            placeholder = QLabel("Perception panel pending — maintenance cortex not yet built")
+            placeholder.setStyleSheet("color:#ff8eb7; padding:24px;")
+            self._install_tab(placeholder)
+            return
+        from ui.perception_panel import PerceptionPanel
+        self._perception_tab = PerceptionPanel(cortex)
+        self._install_tab(self._perception_tab)
+
+    def _build_knowledge_tab(self):
+        """🜂 KNOWLEDGE CORTEX — unified recall across all memory backends
+        (Genesis Organ 3). Each backend queries in its own worker thread."""
+        from ui.knowledge_panel import KnowledgePanel
+        self._knowledge_tab = KnowledgePanel()
+        self._install_tab(self._knowledge_tab)
+
+    def _build_production_console_tab(self):
+        """◇ PRODUCTION CONSOLE (BUILD-022) — the unified production surface.
+
+        Replaces fragmented tab spam with one console hosting Active
+        Sessions, Artifact Gallery, Render Queue, Preview Wall, Tool
+        Fabric, and Diagnostics. Intent input at the top routes through
+        CognitiveCore → worker → real artifact pipeline.
+        """
+        from ui.production_console.console import ProductionConsolePanel
+        self._production_console = ProductionConsolePanel(self.parent_app)
+        self._install_tab(self._production_console)
+
+    def _build_pyramid_chamber_tab(self):
+        """▲ PYRAMID CHAMBER — the living unified cognitive room.
+
+        Per PYRAMID CHAMBER DIRECTIVE. Software-rendered central pyramid
+        reactive to real telemetry (CPU + receipts + state machine), with
+        side telemetry wall and a Creative Realms gateway at the bottom.
+        Each realm routes through an existing subsystem — Reality
+        Enforcement requires no faked activity.
+        """
+        from ui.pyramid_chamber.chamber import PyramidChamberPanel
+        self._pyramid_chamber = PyramidChamberPanel(self.parent_app)
+        self._install_tab(self._pyramid_chamber)
+
+    def _build_simulator_tab(self):
+        """🎮 SIMULATOR — minimal Genesis Organ 6 surface. Probes simcore +
+        sensory_engine availability and exposes a deterministic tick button.
+        Full real-time rendering runtime is a future-build effort (per the
+        REACTIVE COGNITIVE PRESENCE LAYER directive — Phase 1/2/4)."""
+        from PyQt6.QtWidgets import QPlainTextEdit
+        host = QWidget()
+        lay = QVBoxLayout(host)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(8)
+
+        title = QLabel("🎮  SIMULATOR  ·  SIMCORE TRUTH ENGINE")
+        title.setStyleSheet(
+            "color:#ffce28; font-weight:bold; font-size:14px; letter-spacing:3px;"
+        )
+        lay.addWidget(title)
+        sub = QLabel(
+            "Deterministic world engine + sensory adapter probe. The full "
+            "real-time rendering runtime is on the roadmap — this room exists "
+            "to verify the underlying engines are alive and tickable."
+        )
+        sub.setStyleSheet("color:#ff8eb7; font-size:11px;")
+        sub.setWordWrap(True)
+        lay.addWidget(sub)
+
+        status = QPlainTextEdit()
+        status.setReadOnly(True)
+        status.setStyleSheet(
+            "background:#0a0420; color:#fff5e0; border:1px solid #ff2d92;"
+            " border-radius:5px; font-family:Consolas,monospace; font-size:11px;"
+        )
+        lay.addWidget(status, 1)
+
+        self._sim_status_log = status
+        self._sim_world = None
+
+        def _probe_engines():
+            lines = []
+            try:
+                import simcore
+                lines.append(f"✓ simcore importable — {len(dir(simcore))} symbols")
+            except Exception as e:
+                lines.append(f"✗ simcore unavailable — {e}")
+            try:
+                import sensory_engine
+                eng = getattr(sensory_engine, "default_engine", None)
+                lines.append(f"✓ sensory_engine importable — default_engine={'yes' if eng else 'no'}")
+            except Exception as e:
+                lines.append(f"✗ sensory_engine unavailable — {e}")
+            try:
+                import imageforge
+                lines.append(f"✓ imageforge importable — Stable Diffusion bridge ready")
+            except Exception as e:
+                lines.append(f"✗ imageforge unavailable — {e}")
+            try:
+                import procreation
+                lines.append(f"✓ procreation importable — agent spawner available")
+            except Exception as e:
+                lines.append(f"✗ procreation unavailable — {e}")
+            self._sim_status_log.setPlainText("\n".join(lines))
+
+        def _tick_simcore():
+            try:
+                import simcore
+                if self._sim_world is None:
+                    self._sim_world = simcore.SimCore.bootstrap(seed=42)
+                    self._sim_status_log.appendPlainText("\n→ simcore bootstrapped (seed=42)")
+                else:
+                    self._sim_world.tick({"action": "observe", "target": "self"})
+                    self._sim_status_log.appendPlainText(
+                        f"→ ticked simcore · world hash = {self._sim_world.current_world().hash[:16]}"
+                    )
+            except Exception as e:
+                self._sim_status_log.appendPlainText(f"\n✗ tick failed: {e}")
+
+        btn_row = QHBoxLayout()
+        probe_btn = QPushButton("◯ PROBE")
+        probe_btn.setToolTip("Verify simcore + sensory_engine + imageforge + procreation are reachable")
+        probe_btn.clicked.connect(_probe_engines)
+        btn_row.addWidget(probe_btn)
+
+        tick_btn = QPushButton("▶ TICK")
+        tick_btn.setToolTip("Bootstrap (first click) then tick simcore one step")
+        tick_btn.clicked.connect(_tick_simcore)
+        btn_row.addWidget(tick_btn)
+
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
+        self._install_tab(host)
+        QTimer.singleShot(0, _probe_engines)
 
     # ── Repair bar ──────────────────────────────────────────────────────────
     # Detector runs every 30s. Two passes for now:
@@ -4045,48 +4964,98 @@ Question: {question}"""
     # original files are copied to ~/.stratum/repair/<ts>/ before any write.
 
     def _repair_detect(self):
+        # Phase A v3 final: dispatch the AST + log scan onto a worker thread.
+        # Pre-fix this fired every 30s on the UI thread (574ms cold full-parse
+        # of 79 .py files), producing visible periodic freezes. The in-flight
+        # guard prevents queuing a second scan if the previous one hasn't
+        # returned yet (e.g. on a giant project).
+        if getattr(self, "_repair_in_flight", False):
+            return
+        self._repair_in_flight = True
+        self._run_in_thread(self._collect_issues, on_done=self._repair_apply_results)
+
+    def _repair_apply_results(self, issues):
+        """UI-thread slot — receives worker result and updates the repair bar."""
+        self._repair_in_flight = False
         try:
-            issues = self._collect_issues()
+            if isinstance(issues, dict) and "error" in issues:
+                logging.getLogger("stratum.app").warning(
+                    "repair detect worker failed: %s", issues["error"],
+                )
+                return
+            if not isinstance(issues, list):
+                return
+            self._repair_issues = issues
+            if not issues:
+                self.repair_bar.hide()
+                return
+            n = len(issues)
+            kinds = sorted(set(i.get("kind", "?") for i in issues))
+            self._repair_lbl.setText(
+                f"🔧  {n} issue{'s' if n != 1 else ''} detected  ·  " + " · ".join(kinds)
+            )
+            self.repair_bar.show()
         except Exception as exc:
-            logging.getLogger("stratum.app").exception("repair detect failed: %s", exc)
-            return
-        self._repair_issues = issues
-        if not issues:
-            self.repair_bar.hide()
-            return
-        n = len(issues)
-        kinds = sorted(set(i.get("kind", "?") for i in issues))
-        self._repair_lbl.setText(
-            f"🔧  {n} issue{'s' if n != 1 else ''} detected  ·  " + " · ".join(kinds)
-        )
-        self.repair_bar.show()
+            logging.getLogger("stratum.app").exception("repair apply failed: %s", exc)
 
     def _collect_issues(self) -> list[dict]:
         out: list[dict] = []
         root = Path(getattr(self.parent_app, "root", "."))
 
-        # (1) Log errors
+        # (1) Log errors — robust calibration:
+        #   - level match is a word-boundary regex, not substring, so files /
+        #     symbols containing "ERROR" don't false-trigger
+        #   - timestamp parser handles ISO-with-comma-ms, ISO-with-dot-ms,
+        #     space separator, and bracket-wrapped forms; if a line's stamp
+        #     cannot be parsed, the line is REJECTED (fail-closed) instead of
+        #     being admitted with the cutoff timestamp, so stale errors from
+        #     prior boots no longer leak through
+        #   - dedupes identical lines within one collection pass
+        import re as _re
         log_path = Path.home() / ".stratum" / "stratum.log"
         if log_path.is_file():
             try:
                 cutoff = datetime.now().timestamp() - 300
+                level_rx = _re.compile(r"\b(ERROR|CRITICAL)\b")
+                stamp_rx = _re.compile(
+                    r"^\[?\s*(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d{1,6})?)"
+                )
+                scanned = matched = admitted = parse_fail = 0
+                seen: set[str] = set()
                 with log_path.open("r", encoding="utf-8", errors="replace") as fh:
                     for ln in fh.readlines()[-400:]:
-                        if "ERROR" in ln or "CRITICAL" in ln:
-                            # Crude timestamp filter — first 19 chars are ISO-ish
-                            stamp = ln[:19]
-                            try:
-                                t = datetime.fromisoformat(stamp.replace(",", ".")).timestamp()
-                            except Exception:
-                                t = cutoff
-                            if t >= cutoff:
-                                out.append({
-                                    "kind":   "log-error",
-                                    "where":  "stratum.log",
-                                    "line":   ln.rstrip()[:240],
-                                })
+                        scanned += 1
+                        if not level_rx.search(ln):
+                            continue
+                        matched += 1
+                        m = stamp_rx.match(ln)
+                        if not m:
+                            parse_fail += 1
+                            continue
+                        stamp = m.group(1).replace(",", ".").replace("T", " ")
+                        try:
+                            t = datetime.fromisoformat(stamp).timestamp()
+                        except Exception:
+                            parse_fail += 1
+                            continue
+                        if t < cutoff:
+                            continue
+                        body = ln.rstrip()[:240]
+                        if body in seen:
+                            continue
+                        seen.add(body)
+                        admitted += 1
+                        out.append({
+                            "kind":   "log-error",
+                            "where":  "stratum.log",
+                            "line":   body,
+                        })
+                self._repair_log_stats = {
+                    "scanned": scanned, "matched": matched,
+                    "admitted": admitted, "parse_failed": parse_fail,
+                }
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                _log.warning("repair_detect log scan failed: %s", e)
 
         # (2) Syntax errors in project .py files — INCREMENTAL via mtime cache.
         # Measured cost on this project (Domain 2 evidence): full re-parse of
@@ -4127,7 +5096,7 @@ Question: {question}"""
                     "text":  (exc.text or "").rstrip(),
                 })
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                _classified_failure(e, "app_py_caught_exception")
 
         # (3) WON daemon analysis notifications (unread) — each carries an
         # "ANALYSIS: ... → Fix: ..." body. Surface them so Apply All can
@@ -4152,7 +5121,7 @@ Question: {question}"""
                     "note_idx": idx,
                 })
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
 
         return out
 
@@ -4238,7 +5207,7 @@ Question: {question}"""
                 try:
                     (backup_dir / target.name).write_text(raw, encoding="utf-8")
                 except Exception as e:
-                    _log.warning(f'caught exception: {e}')
+                    _classified_failure(e, "app_py_caught_exception")
                 prompt = (
                     f"You are repairing a Python SyntaxError. Return ONLY the corrected full "
                     f"file content. No prose, no fences, no commentary.\n\n"
@@ -4314,7 +5283,7 @@ Question: {question}"""
         try:
             out_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
 
         # Persist the snapshot of analyses being applied
         try:
@@ -4322,7 +5291,7 @@ Question: {question}"""
                 json.dumps(issues, indent=2, default=str), encoding="utf-8"
             )
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
 
         # Build a digest for the user
         lines = [
@@ -4345,7 +5314,7 @@ Question: {question}"""
         try:
             mark_notifications_read()
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
 
         QMessageBox.information(self, "WON Analysis — Apply", "\n".join(lines))
         QTimer.singleShot(500, self._repair_detect)
@@ -4353,13 +5322,13 @@ Question: {question}"""
     def _build_portal_tab(self):
         """📡 PORTAL — compact live view (was: standalone PortalWindow)."""
         self._portal_tab = PortalWindow(self.parent_app)
-        self._portal_tab_index = self.tabs.addTab(self._portal_tab, "📡 Portal")
+        self._portal_tab_index = self._install_tab(self._portal_tab)
 
     def _build_manifest_tab(self):
         """◈ MANIFEST — full AI visibility (was: standalone ManifestWindow)."""
         theme = getattr(self, "_theme", THEMES.get("Dark", {}))
         self._manifest_tab = ManifestWindow(self.parent_app, theme)
-        self._manifest_tab_index = self.tabs.addTab(self._manifest_tab, "◈ Manifest")
+        self._manifest_tab_index = self._install_tab(self._manifest_tab)
 
     def _build_simcore_tab(self):
         """SIMCORE — deterministic cognitive simulation.
@@ -4483,7 +5452,7 @@ Question: {question}"""
         self._sim_core = None
         self._sim_director = None
         self._sim_renderer = None
-        self.tabs.addTab(w, "[+] SimCore")
+        self._install_tab(w)
         self._sim_tab_index = self.tabs.indexOf(w)
 
     def _sim_get(self):
@@ -4620,58 +5589,90 @@ Question: {question}"""
             self.progress.hide()
 
     def _refresh_status(self):
-        wp = get_won_pipeline()
+        """Dispatch status probe to a worker thread. Pre-fix this ran on UI
+        thread and ollama_available()/lm_studio.status() with 3s HTTP timeouts
+        could block the main thread for 3-5s every 10s when those services
+        were offline. The freeze cadence matched the user's reported lag."""
+        if getattr(self, "_status_refresh_in_flight", False):
+            return
+        self._status_refresh_in_flight = True
+        self._run_in_thread(self._collect_status, on_done=self._apply_status)
 
-        # Check daemon notifications
-        notes = get_daemon_notifications(unread_only=True)
+    def _collect_status(self) -> dict:
+        """Worker-thread status probe. Returns a dict that _apply_status
+        consumes on the UI thread. Never raises — failures propagate as
+        the worker result envelope from Worker.run()."""
+        wp = get_won_pipeline()
+        out: dict = {"has_notes": False}
+        try:
+            notes = get_daemon_notifications(unread_only=True)
+        except Exception:
+            notes = []
         if notes:
             latest = notes[-1]
-            title  = latest.get("title", "WON")
-            body   = latest.get("body", "")[:60]
-            pri    = latest.get("priority", "normal")
-            color  = "#f85149" if pri == "high" else "#f0883e"
-            self.status.setStyleSheet(f"QStatusBar {{ background:#161b22; color:{color}; }}")
-            self.status.showMessage(f"🔔 WON: {title} — {body}  (click to dismiss)")
-            mark_notifications_read()
-            return
-
-        self.status.setStyleSheet("")
-
+            out.update({
+                "has_notes": True,
+                "title":  latest.get("title", "WON"),
+                "body":   latest.get("body", "")[:60],
+                "pri":    latest.get("priority", "normal"),
+            })
+            try: mark_notifications_read()
+            except Exception: pass
+            return out
         # Daemon status
-        daemon = get_daemon_status()
-        daemon_str = ""
+        try: daemon = get_daemon_status()
+        except Exception: daemon = None
         if daemon:
-            daemon_str = (
+            out["daemon_str"] = (
                 f" · Daemon: ✓ "
                 f"C#{daemon.get('cognition_count',0)} "
                 f"R#{daemon.get('research_count',0)}"
             )
-
+        else:
+            out["daemon_str"] = ""
         if wp:
-            try:
-                s = wp.stats()
-                # Check LM Studio
-                lms_str = ""
-                if LMS_OK:
-                    try:
-                        lms_status = _lms.status()
-                        if lms_status.get("lm_studio"):
-                            lms_str = f" · LMStudio ✓ {lms_status.get('active_model','')[:20]}"
-                        else:
-                            lms_str = " · LMStudio ✗"
-                    except Exception as e:
-                        _log.warning(f'caught exception: {e}')
+            try: out["stats"] = wp.stats()
+            except Exception: out["stats"] = {}
+            lms_str = ""
+            if LMS_OK:
+                try:
+                    lms_status = _lms.status()
+                    if lms_status.get("lm_studio"):
+                        lms_str = f" · LMStudio ✓ {lms_status.get('active_model','')[:20]}"
+                    else:
+                        lms_str = " · LMStudio ✗"
+                except Exception:
+                    pass
+            out["lms_str"] = lms_str
+            try: out["ollama_ok"] = ollama_available()
+            except Exception: out["ollama_ok"] = False
+        return out
 
+    def _apply_status(self, result):
+        """UI-thread slot — apply worker result to status bar."""
+        self._status_refresh_in_flight = False
+        try:
+            if not isinstance(result, dict):
+                return
+            if result.get("has_notes"):
+                color  = "#f85149" if result["pri"] == "high" else "#f0883e"
+                self.status.setStyleSheet(f"QStatusBar {{ background:#161b22; color:{color}; }}")
                 self.status.showMessage(
-                    f"WON: {s.get('total_entries', 0)} entries · "
-                    f"Ollama {'✓' if ollama_available() else '✗'}"
-                    f"{lms_str} · "
-                    f"Vault: {os.environ.get('WON_VAULT', 'not set')}"
-                    f"{daemon_str}"
+                    f"🔔 WON: {result['title']} — {result['body']}  (click to dismiss)"
                 )
                 return
-            except Exception: pass
-        self.status.showMessage(f"Pipeline offline — set WON_PATH env var{daemon_str}")
+            self.status.setStyleSheet("")
+            stats = result.get("stats", {})
+            self.status.showMessage(
+                f"WON: {stats.get('total_entries', 0)} entries · "
+                f"Ollama {'✓' if result.get('ollama_ok') else '✗'}"
+                f"{result.get('lms_str','')} · "
+                f"Vault: {os.environ.get('WON_VAULT', 'not set')}"
+                f"{result.get('daemon_str','')}"
+            )
+        except Exception as exc:
+            _classified_failure(exc, "refresh_status_apply",
+                                 executor="HistoryDashboard._apply_status")
 
     def _run_in_thread(self, fn, *args, on_done=None):
         # GC finished workers BEFORE checking the cap — keeps the list tight
@@ -4785,7 +5786,7 @@ Question: {question}"""
                         _nb.build_brief_note(sid, data["platform"], data["summary"], 0, ts_str)
                         result["note_builder_used"] = True
                     except Exception as e:
-                        _log.warning(f'caught exception: {e}')
+                        _classified_failure(e, "app_py_caught_exception")
                 return result
             def done(r):
                 self._busy(False)
@@ -4930,6 +5931,21 @@ Question: {question}"""
 # ============================================================
 
 THEMES = {
+    # TimeSplitters 2 — comic-book arcade FPS palette. Deep indigo night
+    # with hot-pink chrome trim, arcade-yellow accents, electric cyan
+    # secondary, and cream text. The "monkey just won the round" vibe.
+    "TimeSplitters": {
+        "bg":         "#1a0e3e",   # deep indigo dusk
+        "bg2":        "#2d1759",   # royal purple
+        "bg3":        "#0a0420",   # almost-black
+        "border":     "#ff2d92",   # hot pink chrome
+        "accent":     "#ffce28",   # arcade yellow (coin/lives)
+        "accent2":    "#28e6ff",   # electric cyan (score)
+        "text":       "#fff5e0",   # cream
+        "text2":      "#ff8eb7",   # rose
+        "warn":       "#ff5722",   # blood orange
+        "header_bg":  "#0e0626",   # midnight banner
+    },
     "Dark": {
         "bg": "#0d1117", "bg2": "#161b22", "bg3": "#010409",
         "border": "#1f6feb", "accent": "#58a6ff", "accent2": "#3fb950",
@@ -4964,7 +5980,9 @@ THEMES = {
 
 
 # ── Active theme (global — shared across all windows) ──────────────────────
-_ACTIVE_THEME_KEY = "Dark"
+# TimeSplitters 2 is the operator's default (2026-05-18). The old Dark
+# theme stays available via /theme dark or the Portal theme switcher.
+_ACTIVE_THEME_KEY = "TimeSplitters"
 _APP_INSTANCE     = None   # set at AIMonitorApp.__init__
 
 def get_active_theme() -> dict:
@@ -4975,7 +5993,7 @@ def apply_app_theme(theme_key: str, app_instance=None):
     Apply a theme across ALL open windows instantly.
     Called by WON when it generates or selects a theme.
     """
-    global _ACTIVE_THEME_KEY, _APP_INSTANCE
+    global _ACTIVE_THEME_KEY
     if theme_key not in THEMES and theme_key != "__custom__":
         return False
     _ACTIVE_THEME_KEY = theme_key
@@ -5041,7 +6059,7 @@ class _StatusShim:
         try:
             self._lbl.setText(msg)
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
 
 
 class ManifestWindow(QWidget):
@@ -5244,7 +6262,7 @@ class ManifestWindow(QWidget):
         def done(entries):
             if not isinstance(entries, list): return
             self.mem_list.clear()
-            t = self._theme
+            self._theme
             for e in entries:
                 ts      = (e.get("timestamp") or "")[:16].replace("T", " ")
                 mode    = e.get("mode", "?")
@@ -6022,7 +7040,7 @@ Respond as a distinguished intelligence chaperone. You are fully visible. Guide 
                 dash.activateWindow()
                 return
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                _classified_failure(e, "app_py_caught_exception")
         # Fallback: original popout behavior if dashboard not reachable
         if self._manifest_win is None or not self._manifest_win.isVisible():
             self._manifest_win = ManifestWindow(self.parent_app, self._theme)
@@ -6088,28 +7106,82 @@ class LabWidget(QWidget):
         self._pulse_state = False
         self._busy_action = None
         self.setAcceptDrops(True)
-        self.setStyleSheet(
-            "LabWidget { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
-            "stop:0 #06091c, stop:1 #0a0f28); }"
-        )
+        # ── PIP-BOY VAULT-TEC LAB STYLING ──────────────────────────────────
+        # Fallout aesthetic: phosphor green on dark CRT black, Vault-Tec
+        # amber accents, monospace caps for that vintage industrial feel.
+        # This overrides the global TimeSplitters theme for the Lab tab only.
+        PIP_BG       = "#0a1a08"
+        PIP_BG_DEEP  = "#050d04"
+        PIP_GREEN    = "#5af26f"
+        PIP_GREEN_D  = "#00aa2a"
+        PIP_AMBER    = "#ffb000"
+        PIP_RED      = "#ff4136"
+        self.setStyleSheet(f"""
+            LabWidget {{
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 {PIP_BG_DEEP}, stop:1 {PIP_BG});
+            }}
+            LabWidget QLabel {{
+                color: {PIP_GREEN};
+                font-family: 'Consolas', 'Courier New', monospace;
+            }}
+            LabWidget QTextEdit, LabWidget QLineEdit, LabWidget QListWidget {{
+                background: {PIP_BG_DEEP};
+                color: {PIP_GREEN};
+                border: 1px solid {PIP_GREEN_D};
+                border-radius: 2px;
+                padding: 6px;
+                font-family: 'Consolas','Courier New', monospace;
+                selection-background-color: {PIP_GREEN_D};
+                selection-color: {PIP_BG_DEEP};
+            }}
+            LabWidget QListWidget::item:selected {{
+                background: {PIP_GREEN_D}; color: {PIP_BG_DEEP};
+            }}
+            LabWidget QPushButton {{
+                background: {PIP_BG_DEEP};
+                color: {PIP_GREEN};
+                border: 1px solid {PIP_GREEN_D};
+                border-radius: 2px;
+                padding: 6px 14px;
+                font-weight: bold;
+                letter-spacing: 1px;
+            }}
+            LabWidget QPushButton:hover {{
+                background: {PIP_GREEN_D};
+                color: {PIP_BG_DEEP};
+                border: 1px solid {PIP_AMBER};
+            }}
+            LabWidget QPushButton:pressed {{
+                background: {PIP_AMBER}; color: {PIP_BG_DEEP};
+            }}
+            LabWidget QScrollBar:vertical {{
+                background: {PIP_BG_DEEP}; width: 10px;
+                border: 1px solid {PIP_GREEN_D};
+            }}
+            LabWidget QScrollBar::handle:vertical {{
+                background: {PIP_GREEN_D}; border-radius: 2px;
+            }}
+        """)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 10, 10, 10)
         root.setSpacing(8)
 
-        # ── Lab station header (atmosphere + live state) ────────────────────
+        # ── Lab station header — Vault-Tec terminal banner ──────────────────
         station = QHBoxLayout()
-        title = QLabel("🧪  LAB  ·  STRATUM ANALYSIS STATION")
+        title = QLabel("VAULT-TEC  ·  LABORATORY TERMINAL  ·  RobCo OS v8.1")
         title.setStyleSheet(
-            "color:#58a6ff; font-weight:bold; font-size:14px;"
-            " letter-spacing:1px;"
+            f"color:{PIP_AMBER}; font-weight:bold; font-size:13px;"
+            f" letter-spacing:3px; background:{PIP_BG_DEEP};"
+            f" border:1px solid {PIP_GREEN_D}; padding:6px 12px;"
         )
         station.addWidget(title)
         station.addSpacing(16)
 
         self._status_led = QLabel("●")
-        self._status_led.setStyleSheet("color:#3fb950; font-size:14px;")
-        self._status_led.setToolTip("Lab state — green = idle, blue pulse = working")
+        self._status_led.setStyleSheet(f"color:{PIP_GREEN}; font-size:14px;")
+        self._status_led.setToolTip("Lab state — green = idle, amber pulse = working")
         station.addWidget(self._status_led)
         self._status_text = QLabel("IDLE")
         self._status_text.setStyleSheet(
@@ -6596,7 +7668,7 @@ class LabWidget(QWidget):
                     try:
                         meta = json.loads(meta_file.read_text(encoding="utf-8"))
                     except Exception as e:
-                        _log.warning(f'caught exception: {e}')
+                        _classified_failure(e, "app_py_caught_exception")
                 last_action = meta.get("last_action", "?")
                 latest_md = sorted(slug_dir.glob("*.md"),
                                    key=lambda p: p.stat().st_mtime, reverse=True)
@@ -6754,7 +7826,7 @@ class DNAPanel(QWidget):
             tmp.write_text(json.dumps(self._dna_cache), encoding="utf-8")
             tmp.replace(self._cache_file)
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
 
     def _scan_project(self):
         root = self._project_root()
@@ -7808,7 +8880,7 @@ class FloatingWidget(QWidget):
             try:
                 dash.tabs.setCurrentIndex(idx)
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                _classified_failure(e, "app_py_caught_exception")
         self._flash("◈ HUB · ▲ PYRAMID", "#58a6ff")
 
     def _breachgate(self):
@@ -7824,7 +8896,7 @@ class FloatingWidget(QWidget):
                 self._flash("◊ PORTAL FOCUSED", "#58a6ff")
                 return
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                _classified_failure(e, "app_py_caught_exception")
         # Fallback / DETCORE-specific path
         if self._portal is None or not self._portal.isVisible():
             if DETCORE_OK:
@@ -8108,7 +9180,7 @@ def _acquire_single_instance_lock():
             fh.write(f"{os.getpid()}\n".encode("utf-8"))
             fh.flush()
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
         return fh
     except Exception:
         return None
@@ -8202,31 +9274,114 @@ class AIMonitorApp:
             self.app.processEvents()
             self._splash_say("Booting…")
 
+        # ── REALITY LAW §4: MANDATORY BOOT SELF-CHECK ─────────────────────
+        # The system must PROVE it can produce a real file through the
+        # canonical path (Intent→Router→Worker→File→Validate) before the
+        # window opens. A simulation violation FAILS BOOT.
+        self._splash_say("Verifying real execution…")
+        _boot_fail = None
+        try:
+            from engine.boot_self_check import run_boot_self_check, CriticalSimulation
+            _bsc = run_boot_self_check(strict=True)
+            if _bsc.get("verdict") != "PASS_REAL_EXECUTION":
+                _boot_fail = (f"{_bsc.get('verdict')} · "
+                              f"{_bsc.get('violations') or _bsc.get('checks')}")
+        except CriticalSimulation as _cs:
+            _boot_fail = f"CRITICAL_SIMULATION · {_cs}"
+        except Exception as _e:
+            # Checker harness itself failed to load — record, do not brick
+            # the desktop on an unexpected infrastructure error.
+            try:
+                (Path(__file__).resolve().parent / "startup_err.txt").write_text(
+                    f"boot_self_check harness error: {type(_e).__name__}: {_e}",
+                    encoding="utf-8")
+            except Exception:
+                pass
+        if _boot_fail:
+            try:
+                (Path(__file__).resolve().parent / "startup_err.txt").write_text(
+                    f"BOOT BLOCKED (reality law): {_boot_fail}", encoding="utf-8")
+            except Exception:
+                pass
+            try:
+                from PyQt6.QtWidgets import QMessageBox as _QMB
+                _QMB.critical(None, "DBOMBLOCAL — BOOT BLOCKED",
+                              f"Reality-law violation; the system cannot prove "
+                              f"real execution:\n\n{_boot_fail}")
+            except Exception:
+                pass
+            sys.exit(1)
+
+        # ── MEMPALACE: initialize ledger BEFORE UI, load last 10 executions,
+        # run the strict persistence boot gate. Block boot on failure.
+        self._splash_say("Loading execution ledger…")
+        _mem_fail = None
+        try:
+            from engine.mem_palace import get_mem_palace, run_boot_check, MemPalaceBootFailure
+            _mp = get_mem_palace()                       # init disk-backed ledger
+            _recent = _mp.load_recent_executions(10)     # MEMORY_RELOADED
+            try:
+                (Path(__file__).resolve().parent / "telemetry" / "mem_palace_recent.json").write_text(
+                    json.dumps(_recent, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+            _mb = run_boot_check(strict=True)            # real exec + persist + reload + hash
+            if not _mb.get("verdict", "").startswith("PASS"):
+                _mem_fail = f"{_mb.get('verdict')} · {_mb.get('failures')}"
+        except MemPalaceBootFailure as _mf:
+            _mem_fail = f"MEMORY_PERSISTENCE_FAILED · {_mf}"
+        except Exception as _e:
+            try:
+                (Path(__file__).resolve().parent / "startup_err.txt").write_text(
+                    f"mem_palace boot harness error: {type(_e).__name__}: {_e}",
+                    encoding="utf-8")
+            except Exception:
+                pass
+        if _mem_fail:
+            try:
+                (Path(__file__).resolve().parent / "startup_err.txt").write_text(
+                    f"BOOT BLOCKED (mem_palace): {_mem_fail}", encoding="utf-8")
+            except Exception:
+                pass
+            try:
+                from PyQt6.QtWidgets import QMessageBox as _QMB
+                _QMB.critical(None, "DBOMBLOCAL — BOOT BLOCKED",
+                              f"MemPalace persistence gate failed:\n\n{_mem_fail}")
+            except Exception:
+                pass
+            sys.exit(1)
+
+        # ── BACKEND SCAN (CTES v2): deterministic backend truth snapshot at
+        # boot. The async ToolFabric refresh does NOT reliably complete in the
+        # frozen runtime (DeferredWorkspaceLoader timing), so backend_scan.json
+        # was never written in the EXE. Force ONE synchronous scan here so the
+        # dual-state snapshot is GUARANTEED on every boot. Non-fatal — a scan
+        # failure must never block boot (observability, not a gate).
+        self._splash_say("Scanning backends…")
+        try:
+            from engine.tool_fabric import scan_now
+            scan_now()
+        except Exception:
+            pass
+
         for d in [HISTORY_DIR, SANDBOX_DIR, PROPOSALS_DIR]:
             d.mkdir(parents=True, exist_ok=True)
 
-        # Pre-warm heavy imports on a background thread. Load-shapes the
-        # mempalace / chromadb / onnxruntime / sentence_transformers / etc.
-        # imports OFF the lazy-tab-builder main-thread path. Phase A v2
-        # incorrectly deferred this to AFTER on_ready, which then forced
-        # the lazy tab builders to do cold imports synchronously on the
-        # main thread — that net regressed boot time.
+        # Pre-warm of heavy modules MOVED TO POST-PAINT (_deferred_services).
+        #
+        # Original design used a parallel prewarm thread to warm caches
+        # before lazy tab builders cold-imported. Empirically, the prewarm
+        # thread contended GIL with HistoryDashboard construction and stole
+        # 5-13s from click_to_interactive depending on which heavy import
+        # was first in the queue (mempalace.miner happened to be lucky in
+        # build-005 because its 10s disk-I/O released the GIL cleanly).
+        #
+        # Post-paint prewarm is unconditionally faster for the user-perceived
+        # interactive moment. Trade-off: the first user-action that touches
+        # mempalace / pyramid_compartment may incur a 1-2s cold-import lag.
+        # That cost is paid by the action that actually needs it, not by
+        # every boot.
         self._prewarm_done = False
-        def _prewarm():
-            for mod in ("mempalace", "mempalace.miner", "mempalace.searcher",
-                        "mempalace_bridge", "pyramid_compartment",
-                        "agent_chatroom", "perceptual_engine"):
-                try:
-                    __import__(mod)
-                except Exception as e:
-                    _log.warning(f'caught exception: {e}')
-            self._prewarm_done = True
-            try:
-                from core.profiler import mark as _bm
-                _bm("prewarm_complete")
-            except Exception:
-                pass
-        threading.Thread(target=_prewarm, name="ImportPrewarm", daemon=True).start()
         self._splash_say("Pre-warming imports…")
         self.app.processEvents()
 
@@ -8258,6 +9413,16 @@ class AIMonitorApp:
         self.observer_running = True
         QTimer.singleShot(750, self._start_observer_threads_deferred)
 
+        # BUILD-034: start the TASKMASTER Ω orchestration substrate + in-process
+        # FastAPI service on a DAEMON THREAD (not a Qt main-thread timer). Frozen
+        # boot churns the main thread for minutes, which starves a singleShot and
+        # delays the API ~5min. A thread brings it up within seconds, decoupled
+        # from UI boot, and never blocks/crashes the UI (the target is fully
+        # guarded and touches no Qt objects). Non-fatal — hard gates already passed.
+        import threading as _omega_threading
+        _omega_threading.Thread(target=self._start_omega_substrate_deferred,
+                                name="omega-substrate-boot", daemon=True).start()
+
         # ── Layer 3: LOAD ROOMS (kicked from _first_show) ─────────────────
         self._splash_say("Loading rooms…")
         self.app.processEvents()
@@ -8271,6 +9436,30 @@ class AIMonitorApp:
         # idempotent.
         QTimer.singleShot(30000, lambda: self._on_rooms_loaded() if getattr(self, "_splash", None) else None)
 
+    def _start_omega_substrate_deferred(self):
+        """BUILD-034: init TASKMASTER Ω, launch the in-process FastAPI service,
+        run the expanded boot check (API + rooms + agents + replay +
+        orchestration). Non-fatal — never blocks or crashes the UI. Writes a
+        frozen-aware telemetry/omega_boot.json for post-exit verification."""
+        try:
+            import json as _json
+            from omega.orchestrator import get_kernel
+            from omega.embedded_server import spawn_api_process
+            from omega.paths import telemetry_root
+            get_kernel()
+            api_state = spawn_api_process()
+            boot = get_kernel().boot_check(api_state=api_state)
+            try:
+                (telemetry_root() / "omega_boot.json").write_text(
+                    _json.dumps(boot, indent=2), encoding="utf-8")
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                _classified_failure(e, "app_py_caught_exception")
+            except Exception:
+                pass
+
     def _splash_say(self, msg: str):
         if getattr(self, "_splash", None) is None: return
         try:
@@ -8280,7 +9469,7 @@ class AIMonitorApp:
                 QColor("#7ee787"),
             )
         except Exception as e:
-            _log.warning(f'caught exception: {e}')
+            _classified_failure(e, "app_py_caught_exception")
 
     def _on_rooms_loaded(self):
         """Called by HistoryDashboard when Layer 3 finishes."""
@@ -8296,11 +9485,105 @@ class AIMonitorApp:
         self.dashboard.show()
         self.dashboard.raise_()
         self.dashboard.activateWindow()
-        # PHASE A v3: services are deferred 2s after first paint so the user
-        # gets an interactive window before background daemons/threads spawn.
-        # This eliminates the "program not responding" feeling that the user
-        # reported during boot.
-        QTimer.singleShot(2000, self._deferred_services)
+        # PHASE A v3 + UI_RECOVERY: services deferred 4s after first paint
+        # so the lazy tab builders (22 × 150ms = 3.3s window) finish before
+        # heavy services compete for the main thread.
+        QTimer.singleShot(4000, self._deferred_services)
+
+        # SURGICAL_UI_RECOVERY: pre-build the maintenance cortex on a worker
+        # thread NOW (at first_show). By the time the Maintenance tab builder
+        # fires (post-paint, late in the lazy queue), the cortex is ready
+        # and the tab build is a fast singleton reference instead of a 900ms
+        # block. Doctrine §3 P4: bootstrap.phase_4 is idempotent, so the tab
+        # builder's defensive call is a no-op once this thread finishes.
+        def _prebuild_cortex():
+            try:
+                from core.bootstrap import get_bootstrap
+                get_bootstrap().phase_4_maintenance()
+            except Exception as exc:
+                try:
+                    from truth.failure_classifier import report_caught
+                    report_caught("prebuild_cortex_worker", exc,
+                                   executor="AIMonitorApp._first_show.prebuild")
+                except Exception:
+                    pass
+        threading.Thread(target=_prebuild_cortex,
+                          name="CortexPrebuild", daemon=True).start()
+
+        # SURGICAL_UI_RECOVERY: UI thread guard — a QTimer at 200ms cadence
+        # that records the actual delta since its last tick. Deltas > 500ms
+        # indicate the main thread was blocked. Emits a classified-failure
+        # receipt with a "UI_THREAD_BLOCKED" code so freezes leave lineage.
+        #
+        # Throttled: at most one receipt per UI_GUARD_THROTTLE_S to prevent
+        # a feedback loop where the receipt write itself adds main-thread
+        # load and re-triggers the guard.
+        self._ui_guard_last = time.monotonic()
+        self._ui_guard_misses = 0
+        self._ui_guard_last_emit = 0.0
+        UI_GUARD_THROTTLE_S = 10.0
+        def _ui_guard_tick():
+            now = time.monotonic()
+            gap_ms = (now - self._ui_guard_last) * 1000.0
+            self._ui_guard_last = now
+            if gap_ms > 500:
+                self._ui_guard_misses += 1
+                if (now - self._ui_guard_last_emit) < UI_GUARD_THROTTLE_S:
+                    return  # still in throttle window
+                self._ui_guard_last_emit = now
+                try:
+                    from truth.failure_classifier import report_caught
+                    report_caught(
+                        "ui_thread_block",
+                        RuntimeError(f"main thread blocked {gap_ms:.0f}ms"),
+                        executor="UI_THREAD_GUARD",
+                        evidence={"gap_ms": round(gap_ms, 1),
+                                  "miss_count": self._ui_guard_misses,
+                                  "throttle_s": UI_GUARD_THROTTLE_S},
+                        severity="warning",
+                    )
+                except Exception:
+                    pass
+        self._ui_guard_timer = QTimer()
+        self._ui_guard_timer.timeout.connect(_ui_guard_tick)
+        self._ui_guard_timer.start(200)
+
+        # ── AMBIENT REACTIVITY (REACTIVE COGNITIVE PRESENCE LAYER · MVP) ──
+        # Minimum-viable Phase 3 honouring the directive: the title-bar
+        # accent color breathes from cyan→magenta proportional to ACTUAL
+        # CPU load (psutil). No fabricated activity — pure telemetry source.
+        # Sampled every 2s; pure stylesheet swap; never blocks the UI.
+        try:
+            import psutil as _psutil
+            self._ambient_cpu = 0.0
+            def _ambient_tick():
+                try:
+                    cpu = _psutil.cpu_percent(interval=None)  # non-blocking
+                except Exception:
+                    return
+                # Smooth: half-old, half-new
+                self._ambient_cpu = 0.5 * self._ambient_cpu + 0.5 * cpu
+                load = max(0.0, min(1.0, self._ambient_cpu / 100.0))
+                # Cyan (#28e6ff) at idle → magenta (#ff2d92) at full load
+                r = int(0x28 + (0xff - 0x28) * load)
+                g = int(0xe6 + (0x2d - 0xe6) * load)
+                b = int(0xff + (0x92 - 0xff) * load)
+                accent = f"#{r:02x}{g:02x}{b:02x}"
+                try:
+                    badge = getattr(self.dashboard, "badge", None)
+                    if badge is not None:
+                        badge.setStyleSheet(
+                            f"color:{accent}; font-weight:bold;"
+                        )
+                except Exception:
+                    pass
+            self._ambient_timer = QTimer()
+            self._ambient_timer.timeout.connect(_ambient_tick)
+            self._ambient_timer.start(2000)
+        except Exception as e:
+            logging.getLogger("stratum.app").debug(
+                "ambient reactivity unavailable: %s", e,
+            )
 
     def _deferred_services(self):
         """Phase A v3: all heavy service starts kicked AFTER first paint.
@@ -8309,10 +9592,57 @@ class AIMonitorApp:
         Strategy Matrix, Memory Manager cleanup, and the service registry
         all spawn here rather than in _first_show. Idempotent — guard via
         self._services_started.
+
+        Also fires HOTWIRE Phases 4-7 (maintenance + memory restoration +
+        UI shell boundary + operationalization) via core.bootstrap, then
+        transitions the system state machine to OPERATIONAL via the
+        EXECUTING edge once all phases succeed.
         """
         if getattr(self, "_services_started", False):
             return
         self._services_started = True
+
+        # Deferred prewarm: the full heavy-import set. Was previously a
+        # pre-paint thread; moved here because that thread's GIL contention
+        # with HistoryDashboard construction was stealing 5-13s from
+        # click_to_interactive (see build-006/007 boot profile telemetry).
+        # Runs in a daemon thread so it doesn't block the rest of
+        # _deferred_services either.
+        def _deferred_prewarm():
+            for mod in ("mempalace", "mempalace.miner", "mempalace.searcher",
+                        "mempalace_bridge", "pyramid_compartment",
+                        "agent_chatroom", "perceptual_engine"):
+                try:
+                    __import__(mod)
+                except Exception as e:
+                    _log.warning(f"deferred prewarm {mod}: {e}")
+            self._prewarm_done = True
+            try:
+                from core.profiler import mark as _bm
+                _bm("deferred_prewarm_complete")
+            except Exception:
+                pass
+        threading.Thread(target=_deferred_prewarm,
+                          name="DeferredPrewarm", daemon=True).start()
+
+        # HOTWIRE Phases 4-7 — fire FIRST so maintenance cortex is active
+        # for any service that comes up afterward. Each phase is idempotent.
+        try:
+            from core.bootstrap import get_bootstrap
+            _bs = get_bootstrap()
+            _bs.run_post_paint_phases()
+            # Doctrine §4 final directive: transition to operational state.
+            # READY → EXECUTING signals the operational gate is unlocked.
+            if _bs.overall_succeeded():
+                try:
+                    from core.state_manager import transition_to as _ts, SystemState as _S
+                    _ts(_S.EXECUTING, reason="hotwire_phase7_operationalization")
+                except Exception:
+                    pass
+        except Exception as _hw_exc:
+            logging.getLogger("stratum.bootstrap").debug(
+                "hotwire post-paint phases failed: %s", _hw_exc,
+            )
         try:
             from core.profiler import mark as _bm
             _bm("deferred_services_start")
@@ -8572,12 +9902,12 @@ class AIMonitorApp:
             try:
                 _pulse.stop()
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                _classified_failure(e, "app_py_caught_exception")
         if HARVEST_OK:
             try:
                 _harvest.stop_clipboard_harvester()
             except Exception as e:
-                _log.warning(f'caught exception: {e}')
+                _classified_failure(e, "app_py_caught_exception")
         self.app.quit()
 
     def run(self):
@@ -8597,6 +9927,21 @@ class AIMonitorApp:
 # ============================================================
 
 if __name__ == "__main__":
+    # BUILD-034: --omega-api mode runs ONLY the FastAPI server (no Qt). The GUI
+    # spawns the exe in this mode as a separate process so the API serves on its
+    # own GIL, uncontended by the Qt event loop. Self-terminates when parent dies.
+    if "--omega-api" in sys.argv:
+        def _omega_argval(flag, default=None):
+            try:
+                return sys.argv[sys.argv.index(flag) + 1]
+            except (ValueError, IndexError):
+                return default
+        from omega.embedded_server import run_api_blocking
+        _omega_ppid = _omega_argval("--omega-parent")
+        run_api_blocking(host=_omega_argval("--omega-host", "127.0.0.1"),
+                         port=int(_omega_argval("--omega-port", "8077")),
+                         parent_pid=int(_omega_ppid) if _omega_ppid else None)
+        sys.exit(0)
     try:
         startup_log("launch")
         AIMonitorApp().run()

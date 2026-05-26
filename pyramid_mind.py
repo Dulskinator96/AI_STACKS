@@ -29,11 +29,10 @@ import time
 from dataclasses import dataclass, field
 from enum import IntEnum
 from pathlib import Path
-from typing import Optional
 
 import requests
 
-from pyramid_index import PyramidIndex, SymbolRecord, FileRecord
+from pyramid_index import PyramidIndex
 from intent_engine import parse_intent, IntentClass
 
 # ── Config ─────────────────────────────────────────────────────────────────────

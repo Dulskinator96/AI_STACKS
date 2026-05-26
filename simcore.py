@@ -58,7 +58,7 @@ from typing import Any, Callable
 from config import (
     SIMCORE_DB_PATH, SIMCORE_GENESIS_ID, SIMCORE_DEMO_WORLD,
     SIMCORE_SCHEMA_VERSION,
-    EventStatus, RuleViolation, DATA_DIR,
+    EventStatus, RuleViolation,
 )
 
 _log = logging.getLogger(__name__)

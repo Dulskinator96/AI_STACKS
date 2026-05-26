@@ -34,11 +34,11 @@ import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from config import (
     PYRAMID_DB_PATH, RoomKind, DocFormat, TaskStatus, AR_25_50_TEMPLATE,
-    PYRAMID_REASONING_STEPS, DBombLexicon, DATA_DIR,
+    PYRAMID_REASONING_STEPS,
 )
 
 _log = logging.getLogger(__name__)

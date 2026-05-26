@@ -64,12 +64,21 @@ _memory       = None
 _obsidian     = None
 _brain        = None
 _tracker      = None
+_won_last_fail_ts: float = 0.0  # throttle re-attempts when WON core absent
+_WON_RETRY_SECONDS = 60.0
 
 
 def _load_won() -> bool:
-    global _won_ready, _memory, _obsidian, _brain, _tracker
+    """Try to bring WON core online. Caches failure for _WON_RETRY_SECONDS to
+    prevent log spam + repeated import attempts in the frozen exe where the
+    DBOMBCENTRAL_WON tree may be unreachable."""
+    global _won_ready, _won_last_fail_ts, _memory, _obsidian, _brain, _tracker
     if _won_ready:
         return True
+    import time as _t
+    now = _t.time()
+    if _won_last_fail_ts and (now - _won_last_fail_ts) < _WON_RETRY_SECONDS:
+        return False  # in the throttle window — fail fast, don't log
     try:
         from core.memory import WONMemory
         from core.obsidian import ObsidianWriter
@@ -81,9 +90,18 @@ def _load_won() -> bool:
         _brain    = Brain()
         _tracker  = ProjectTracker(path=str(_WON_ROOT / "data" / "projects.json"))
         _won_ready = True
+        _won_last_fail_ts = 0.0
         return True
     except Exception as exc:
-        _log.warning(f"[Pipeline] WON core unavailable — {exc}")
+        _won_last_fail_ts = now
+        # Single classified receipt per throttle window — no log spam.
+        try:
+            from truth.failure_classifier import report_caught
+            report_caught("pipeline_won_load", exc, executor="pipeline._load_won",
+                           evidence={"retry_seconds": _WON_RETRY_SECONDS},
+                           severity="info")
+        except Exception:
+            _log.warning("[Pipeline] WON core unavailable - %s", exc)
         return False
 
 
@@ -336,7 +354,7 @@ def _route_obsidian(
         _log.warning(f"[Pipeline] note_builder unavailable — {exc}")
         return None, None, False
 
-    safe_plat  = platform.replace(" ", "_")
+    platform.replace(" ", "_")
     build_files = _read_build_files()
 
     # 1. Chat History note ─────────────────────────────────────────────────────

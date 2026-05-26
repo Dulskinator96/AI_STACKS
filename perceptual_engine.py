@@ -58,7 +58,6 @@ References:
 """
 from __future__ import annotations
 
-import json
 import logging
 import math
 import re
@@ -68,8 +67,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 from config import (
     ATTENTION_BUDGET,
@@ -85,7 +83,6 @@ from config import (
     RPD_EXEMPLAR_LIMIT,
     RPD_K_NEIGHBORS,
     SOMATIC_DECAY_DAYS,
-    SOMATIC_MARKER_LIMIT,
     SOURCE_CONFIDENCE,
 )
 
@@ -264,7 +261,7 @@ class PredictiveCoder:
             return history[0]
         # Weight toward recent: later items get higher weight
         weights = [PREDICTION_ALPHA ** (len(history) - 1 - i) for i in range(len(history))]
-        total   = sum(weights)
+        sum(weights)
         # Pick the single highest-weight item as representative (text doesn't blend like floats)
         best_idx = weights.index(max(weights))
         return history[best_idx]

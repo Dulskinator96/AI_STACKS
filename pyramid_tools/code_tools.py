@@ -16,7 +16,7 @@ import tempfile
 import textwrap
 from pathlib import Path
 
-from config import DATA_DIR, SANDBOX_TIMEOUT, SKIP_DIRS, ASTKind
+from config import SANDBOX_TIMEOUT, SKIP_DIRS, ASTKind
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 

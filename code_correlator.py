@@ -139,7 +139,7 @@ def _extract_symbols(source: str, node_types: list[str]) -> list[SymbolInfo]:
         return []
 
     results: list[SymbolInfo] = []
-    lines = source.splitlines()
+    source.splitlines()
 
     for node in ast.walk(tree):
         kind = type(node).__name__

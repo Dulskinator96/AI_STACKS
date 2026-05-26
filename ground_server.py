@@ -46,7 +46,7 @@ except Exception as exc:
 try:
     import pipeline as _pipeline
     PIPELINE_OK = True
-except Exception as exc:
+except Exception:
     PIPELINE_OK = False
 
 
@@ -154,9 +154,9 @@ class GroundHandler(BaseHTTPRequestHandler):
 
         elif path == "/process":
             # Full pipeline process (same as browser extension capture)
-            platform  = data.get("platform", "unknown")
+            data.get("platform", "unknown")
             summary   = (data.get("summary") or "").strip()
-            msg_count = int(data.get("messageCount") or 0)
+            int(data.get("messageCount") or 0)
             if not summary:
                 self._send(400, {"error": "summary required"})
                 return

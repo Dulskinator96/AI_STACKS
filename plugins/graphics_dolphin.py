@@ -31,7 +31,7 @@ import os
 import subprocess
 import threading
 import time
-from typing import Any, Optional
+from typing import Optional
 
 from simcore import WorldState
 from simcore_render import VisualProjector

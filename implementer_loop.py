@@ -31,14 +31,12 @@ intent_engine -> code_correlator -> proposal_engine -> executor.
 from __future__ import annotations
 
 import ast
-import json
 import logging
 import py_compile
 import re
 import sys
-import tempfile
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable, Optional

@@ -38,7 +38,6 @@ import logging
 import sqlite3
 import threading
 import time
-from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Optional

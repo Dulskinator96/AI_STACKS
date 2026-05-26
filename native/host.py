@@ -6,7 +6,6 @@
 import sys
 import json
 import struct
-import os
 from datetime import datetime
 from pathlib import Path
 import logging

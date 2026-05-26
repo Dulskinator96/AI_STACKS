@@ -17,11 +17,8 @@ from __future__ import annotations
 
 import os
 import sys
-import re
-import json
 import time
 import shutil
-import signal
 import threading
 import subprocess
 import argparse
@@ -264,7 +261,7 @@ class GeminiBridge:
 
         # Read thread: streams gemini output to terminal
         response_lines: list[str] = []
-        response_ready  = threading.Event()
+        threading.Event()
         last_output_ts  = [time.time()]
 
         def read_output():

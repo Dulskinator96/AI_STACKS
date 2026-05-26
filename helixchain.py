@@ -31,7 +31,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable
 
 from config import (
     HELIX_DB_PATH, HELIX_SCAN_EXTS, HELIX_MAX_FILE_KB, HELIX_MAX_FUNCS_OUT,

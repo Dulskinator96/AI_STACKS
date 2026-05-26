@@ -26,7 +26,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 import requests
 import logging
@@ -724,7 +724,7 @@ def render_markdown(brief: ApplicationBrief) -> str:
     a("")
 
     for m in brief.modules:
-        fname = Path(m.rel_path).name
+        Path(m.rel_path).name
         a(f"### `{m.rel_path}` [{m.line_count} lines · {m.complexity} complexity · {m.file_type}]")
         if m.purpose:
             a(f"**Purpose:** {m.purpose}")

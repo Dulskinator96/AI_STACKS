@@ -32,14 +32,11 @@ import uuid
 import patch_engine
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 _log = logging.getLogger(__name__)
 
 from config import (
-    OLLAMA_URL,
     DEFAULT_MODEL as _DEFAULT_MODEL,
-    CODE_MODEL,
     ENGINEERING_CORE_PROMPT,
     OUTCOMES_FILE,
     SANDBOX_TIMEOUT,
@@ -748,7 +745,7 @@ class OutcomeLearner:
                 return ""
 
             approved_count  = sum(1 for o in relevant if o.get("approved"))
-            rejected_count  = len(relevant) - approved_count
+            len(relevant) - approved_count
             approval_rate   = approved_count / max(len(relevant), 1)
 
             last_approved = [

@@ -7,11 +7,8 @@
 
 from __future__ import annotations
 
-import os
 import re
-import sys
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 _TS   = lambda: datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")

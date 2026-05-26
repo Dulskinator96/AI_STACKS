@@ -89,7 +89,7 @@ class Predictor:
 
     def _score_keywords(self, entries: list[dict]) -> Counter:
         counts: Counter = Counter()
-        now = datetime.utcnow().timestamp()
+        datetime.utcnow().timestamp()
         for i, e in enumerate(entries):
             weight = 1 + (i / max(len(entries), 1))  # recency boost
             words  = re.findall(r'\b[a-z]{4,}\b', (e.get("content","") or "").lower())

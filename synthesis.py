@@ -22,14 +22,9 @@
 from __future__ import annotations
 
 import os
-import sys
-import json
 import math
-import time
-import random
 import hashlib
 import subprocess
-import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -50,13 +45,12 @@ SD_API_IMG2IMG = f"{SD_API_BASE}/sdapi/v1/img2img"
 # ── PIL availability ──────────────────────────────────────────────────────────
 
 try:
-    from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
+    from PIL import Image, ImageDraw, ImageFont
     PIL_OK = True
 except ImportError:
     PIL_OK = False
 
 try:
-    import numpy as np
     NP_OK = True
 except ImportError:
     NP_OK = False
@@ -310,7 +304,7 @@ class GenerativeArt:
         bg  = _hex_to_rgb(DESIGN_PALETTE["void"])
         acc = _hex_to_rgb(DESIGN_PALETTE["accent"])
         acc2 = _hex_to_rgb(DESIGN_PALETTE["accent2"])
-        pla = _hex_to_rgb(DESIGN_PALETTE["plasma"])
+        _hex_to_rgb(DESIGN_PALETTE["plasma"])
         txt = _hex_to_rgb(DESIGN_PALETTE["text"])
         bdr = _hex_to_rgb(DESIGN_PALETTE["border"])
 

@@ -16,10 +16,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Optional
 
-from code_correlator import CodeCorrelator, CorrelationResult, get_correlator
+from code_correlator import CorrelationResult, get_correlator
 from executor import Executor, ExecutionResult
 from intent_engine import IntentResult, parse_intent
-from proposal_engine import Proposal, ProposalEngine, ProposalResult, get_engine
+from proposal_engine import ProposalResult, get_engine
 import logging
 _log = logging.getLogger(__name__)
 

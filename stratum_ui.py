@@ -20,21 +20,15 @@ from __future__ import annotations
 import json
 import os
 import sys
-import traceback
-from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import (
-    Q_ARG,
-    QMetaObject,
     QObject,
     Qt,
-    QThread,
     pyqtSignal,
 )
 from PyQt6.QtGui import (
     QColor,
-    QFont,
     QKeySequence,
     QPalette,
     QShortcut,
@@ -43,15 +37,12 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QApplication,
-    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QPlainTextEdit,
     QPushButton,
-    QScrollArea,
-    QSizePolicy,
     QSplitter,
     QStatusBar,
     QTextEdit,
@@ -60,7 +51,6 @@ from PyQt6.QtWidgets import (
 )
 
 from stratum_pipeline import (
-    StratumPipeline,
     PipelineEvent,
     PipelineRun,
     PipelineStage,

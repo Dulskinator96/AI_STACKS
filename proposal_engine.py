@@ -13,13 +13,13 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 
 import requests
 
 from code_correlator import CorrelationResult
 from config import ENGINEERING_CORE_PROMPT
-from intent_engine import IntentClass, IntentResult
+from intent_engine import IntentResult
 
 # ── Ollama config ────────────────────────────────────────────────────────────
 
