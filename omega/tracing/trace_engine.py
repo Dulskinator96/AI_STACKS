@@ -173,6 +173,13 @@ def emit_failure(message: str, exc: Optional[BaseException] = None, **linkage) -
     return get_tracer().emit_failure(message, exc, **linkage)
 
 
+def render_recent(n: int = 50, *, color: bool = True) -> str:
+    """Render the last n ring events. Lives here (not trace_render) because it
+    needs the ring buffer; keeps trace_render a pure leaf view (cycle-free)."""
+    from omega.tracing.trace_render import render
+    return "\n".join(render(e, color=color) for e in get_tracer().recent(n))
+
+
 @contextmanager
 def trace_context(**linkage):
     """Bind link fields for all emits in this scope (thread/task-safe)."""

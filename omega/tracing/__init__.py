@@ -5,9 +5,9 @@ file-origin tracking, drift detection, anomaly indexing.
 """
 from omega.tracing.trace_contracts import TraceState, TraceEvent, new_trace_id
 from omega.tracing.trace_engine import (
-    get_tracer, emit, emit_failure, trace_context, current_context,
+    get_tracer, emit, emit_failure, trace_context, current_context, render_recent,
 )
-from omega.tracing.trace_render import render, render_recent, enable_ansi_on_windows
+from omega.tracing.trace_render import render, enable_ansi_on_windows
 from omega.tracing.trace_indexer import index, lookup
 from omega.tracing.anomaly_detector import run_drift_scan
 

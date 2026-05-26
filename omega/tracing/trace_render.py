@@ -46,7 +46,6 @@ def render(event: TraceEvent, *, color: bool = True) -> str:
         return line
     return f"{code}{line}{ANSI_RESET}"
 
-
-def render_recent(n: int = 50, *, color: bool = True) -> str:
-    from omega.tracing.trace_engine import get_tracer
-    return "\n".join(render(e, color=color) for e in get_tracer().recent(n))
+# NOTE: render_recent() lives in trace_engine (it needs the ring buffer). Keeping
+# this module a pure LEAF view (imports only trace_contracts) breaks the
+# trace_render <-> trace_engine import cycle. Layer: L2 view, no upward import.
