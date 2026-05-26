@@ -1,5 +1,6 @@
 """BUILD_SUPERVISOR CLI — python -m omega.supervisor <command>
 
+  health   read-only: single composite system-reality snapshot (all sources)
   status   read-only: orphan procs, stale telemetry, env readiness, last good
   clean    kill orphan runtime processes + report stale telemetry (apply)
   env      verify build/runtime environment
@@ -21,7 +22,9 @@ from omega.supervisor import get_supervisor  # noqa: E402
 def main(argv: list[str]) -> int:
     cmd = (argv[0] if argv else "status").lower()
     sup = get_supervisor()
-    if cmd == "status":
+    if cmd == "health":
+        out = sup.health()
+    elif cmd == "status":
         out = sup.status()
     elif cmd == "clean":
         out = sup.clean(apply=True)

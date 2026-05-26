@@ -55,6 +55,11 @@ class BuildSupervisor:
             "last_known_good": self._last_known_good_summary(),
         }
 
+    def health(self, *, persist: bool = True) -> dict:
+        """Single verified system-reality snapshot (composes all sources)."""
+        from omega.supervisor.health import health_snapshot
+        return health_snapshot(persist=persist)
+
     def clean(self, *, apply: bool = False) -> dict:
         return {"processes": clean_processes(apply=apply),
                 "stale_telemetry": scan_stale_telemetry()}
