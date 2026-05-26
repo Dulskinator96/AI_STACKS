@@ -130,7 +130,7 @@ class QualityGate:
         try:
             from runtime.deferred_loader import DeferredWorkspaceLoader
             from engine.workers import get_worker_for_realm
-            from engine.workers.base_worker import WorkerRequest
+            from engine.workers.contracts import WorkerRequest
         except Exception as e:
             _log.debug("refinement dispatch wiring missing: %s", e)
             return

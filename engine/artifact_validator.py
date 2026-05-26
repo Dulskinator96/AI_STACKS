@@ -30,7 +30,7 @@ import wave
 from pathlib import Path
 from typing import Any, Optional
 
-from engine.workers.base_worker import ValidationResult
+from engine.workers.contracts import ValidationResult
 
 _log = logging.getLogger(__name__)
 
