@@ -119,10 +119,20 @@ def _p_boot_gates() -> dict:
 
 
 def _p_known_good() -> dict:
-    from omega.supervisor.build_supervisor import get_supervisor
-    kg = get_supervisor()._last_known_good_summary()  # noqa: SLF001 (read-only)
-    return {"verdict": "OK" if kg else "UNKNOWN",
-            "known_good": kg, "note": None if kg else "no supervised known-good baseline yet"}
+    # Read the supervisor's known-good record DIRECTLY from disk (L0 telemetry)
+    # instead of importing build_supervisor — breaks the health<->build_supervisor
+    # import cycle (§2: no cross-layer circular dependency).
+    p = telemetry_root() / "supervisor" / "known_good.json"
+    if not p.is_file():
+        return {"verdict": "UNKNOWN", "known_good": None,
+                "note": "no supervised known-good baseline yet"}
+    try:
+        kg = json.loads(p.read_text(encoding="utf-8"))
+        summary = {"exe_sha256": kg.get("exe_sha256"), "verdict": kg.get("verdict"),
+                   "when": kg.get("finished_at")}
+        return {"verdict": "OK" if kg.get("verdict") else "UNKNOWN", "known_good": summary}
+    except Exception as e:
+        return {"verdict": "UNKNOWN", "known_good": None, "error": f"{type(e).__name__}: {e}"}
 
 
 _PROBES = {
