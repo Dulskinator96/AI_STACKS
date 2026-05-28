@@ -23,7 +23,8 @@ from typing import Optional
 _log = logging.getLogger(__name__)
 
 
-_PATH = Path(__file__).resolve().parent.parent / "telemetry" / "creative_profile.json"
+from omega.paths import telemetry_root
+_PATH = telemetry_root() / "creative_profile.json"
 
 
 @dataclass(frozen=True)

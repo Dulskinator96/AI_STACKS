@@ -27,8 +27,9 @@ from typing import Any, Optional
 _log = logging.getLogger(__name__)
 
 
-_PREVIEW_LOG = Path(__file__).resolve().parent.parent / "telemetry" / "preview_registry.jsonl"
-_PREVIEW_DIR = Path(__file__).resolve().parent.parent / "telemetry" / "previews"
+from omega.paths import telemetry_root
+_PREVIEW_LOG = telemetry_root() / "preview_registry.jsonl"
+_PREVIEW_DIR = telemetry_root() / "previews"
 
 
 @dataclass

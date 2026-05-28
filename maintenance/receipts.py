@@ -39,7 +39,8 @@ OUTCOME_ESCALATED    = "ESCALATED"
 OUTCOME_UNRESOLVED   = "UNRESOLVED"
 
 
-RECEIPT_LOG = Path(__file__).resolve().parent.parent / "telemetry" / "maintenance_receipts.jsonl"
+from omega.paths import telemetry_root
+RECEIPT_LOG = telemetry_root() / "maintenance_receipts.jsonl"
 
 
 @dataclass(frozen=True)

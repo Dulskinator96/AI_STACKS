@@ -242,8 +242,8 @@ class OpsDashboardPanel(QWidget):
     # 2. boot timing
     def _refresh_boot(self) -> None:
         try:
-            project_root = Path(__file__).resolve().parent.parent
-            tel_dir = project_root / "telemetry"
+            from omega.paths import telemetry_root
+            tel_dir = telemetry_root()
             candidates = sorted(tel_dir.glob("boot_profile_*.json"))
             if not candidates:
                 self._boot_label.setText("No boot profile captured yet.")

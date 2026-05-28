@@ -20,7 +20,8 @@ from typing import Any, Optional
 _log = logging.getLogger(__name__)
 
 
-_LEARNING_PATH = Path(__file__).resolve().parent.parent / "telemetry" / "adaptive_learning.json"
+from omega.paths import telemetry_root
+_LEARNING_PATH = telemetry_root() / "adaptive_learning.json"
 
 
 @dataclass

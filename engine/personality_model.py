@@ -33,7 +33,8 @@ from typing import Any, Optional
 _log = logging.getLogger(__name__)
 
 
-_PERSONALITY_PATH = Path(__file__).resolve().parent.parent / "telemetry" / "personality_model.json"
+from omega.paths import telemetry_root
+_PERSONALITY_PATH = telemetry_root() / "personality_model.json"
 _HISTORY_CAP = 200
 _DECAY_HALF_LIFE_DAYS = 30.0
 _ALPHA = 0.1   # EMA weight for ambition

@@ -21,7 +21,8 @@ from typing import Any, Optional
 _log = logging.getLogger(__name__)
 
 
-_PATH = Path(__file__).resolve().parent.parent / "telemetry" / "preference_memory.json"
+from omega.paths import telemetry_root
+_PATH = telemetry_root() / "preference_memory.json"
 
 # Decay half-life in seconds — preferences halve over this window.
 _HALF_LIFE_S = 30 * 86400.0   # 30 days

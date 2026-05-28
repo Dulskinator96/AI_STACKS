@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Optional
 
 _log = logging.getLogger(__name__)
-_PATH = Path(__file__).resolve().parent.parent.parent / "telemetry" / "calibration_render.json"
+from omega.paths import telemetry_root
+_PATH = telemetry_root() / "calibration_render.json"
 
 
 class RenderCalibrator:

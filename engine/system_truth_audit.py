@@ -26,7 +26,8 @@ from typing import Any, Optional
 _log = logging.getLogger(__name__)
 
 
-_REPORT_PATH = Path(__file__).resolve().parent.parent / "telemetry" / "system_truth_report.json"
+from omega.paths import telemetry_root
+_REPORT_PATH = telemetry_root() / "system_truth_report.json"
 
 
 @dataclass
