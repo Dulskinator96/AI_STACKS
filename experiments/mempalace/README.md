@@ -1,38 +1,45 @@
-# MemPalace — Tomb Relocation Experiment (Stage 1)
+# MemPalace — real-model Tomb 1 recall gate
 
-**Scope:** Test whether shared memory originally stored in Tomb 1 remains searchable after Model B's membership is reassigned to Tomb 2.
+Upstream foundation: [MemPalace/mempalace](https://github.com/MemPalace/mempalace), version 3.12.0. This branch tests the pyramid/tomb concept without changing upstream source.
 
-**Source:** [MemPalace official README](https://github.com/MemPalace/mempalace/blob/develop/README.md) and [CLI documentation](https://github.com/MemPalace/mempalace/blob/develop/website/reference/cli.md).
+## Scope
 
-This is an isolated experimental extension. It uses **real MemPalace `mine`, `search`, and `export` operations**, not a simulated storage layer.
+Two **real, distinct** local LLMs interact in Tomb 1 under the same instructions. Their actual messages are stored in the real MemPalace index. Model B subsequently generates a new message assigned to Tomb 2. The Tomb 1 history is preserved, then Model A is called afresh to answer a factual question using retrieved memory.
 
-## Experimental sequence
+- Model A: `qwen2.5:0.5b`.
+- Model B: `smollm2:135m`.
+- Local LLM engine: Ollama.
+- Memory engine: real MemPalace `mine`, scoped `search`, and `export`.
+- Storage: disposable temporary palace, with no user data and no cloud model API.
+- GitHub Actions: workflow installs both real models, calls them, and uploads evidence.
 
-1. Represent two model identities, A and B, initially in Tomb 1.
-2. Store a shared synthetic historical memory using MemPalace.
-3. Search it and require exact marker recall.
-4. Reassign B's membership to Tomb 2. **Retain** Tomb 1's historic memory.
-5. Give Tomb 2 a separate synthetic post-relocation memory; index it with MemPalace.
-6. Query Tomb 1 again and check the pre-move shared memory remains findable.
-7. Verify Tomb 2 recall, no private-marker appearance in Tomb 1 scoped results, and verbatim archival export.
+## What is tested
 
-The test is **stage 1 only**. No live LLM, process migration, or machine-learning weight update occurs. Tomb/wings are organizational search scopes, **not security boundaries**. A query across *all* wings could retrieve both histories; access control requires a separately implemented mechanism.
+1. B produces an actual message containing a randomized historical identifier.
+2. A actually reads B's message and repeats that identifier.
+3. MemPalace stores both model responses and retrieves their shared history.
+4. B is reassigned to Tomb 2 and generates new post-move memory.
+5. A fresh A inference, with no memory, is used as a baseline.
+6. A separate fresh A inference reads only the **scoped** Tomb 1 MemPalace retrieval and answers about B's historical identifier.
+7. Export is checked for both exact original memory identifiers.
+8. Test returns PASS only if A recalls the identifier with memory, but not without it.
 
-A historical fact retained in a shared store is standard retrieval-augmented memory, not evidence of paranormal or unexplained knowledge transmission.
+This proves retrieval-augmented historical recall if it passes. It does **not** prove internal weight learning, physical model-process migration, consciousness, or unauthorized cross-tomb knowledge. Wings are organizational search scopes, not security boundaries.
 
-## Run
+## How to view real execution
 
-Python 3.10+; install official MemPalace 3.12.0 in an isolated environment. Download of the embedding model may be required on first execution.
+Select the branch `experiment/mempalace-tomb-memory-v1` in GitHub Actions, view **MemPalace real LLM tomb experiment**, and open its uploaded `mempalace-real-llm-evidence` JSON. A committed workflow file alone is not a run.
+
+## Local equivalent
 
 ```bash
 python -m pip install mempalace==3.12.0
-python experiments/mempalace/tomb_relocation.py --report result.json
+ollama serve
+ollama pull qwen2.5:0.5b
+ollama pull smollm2:135m
+python experiments/mempalace/tomb_relocation.py --report mempalace-result.json
 ```
 
-The workflow at `.github/workflows/mempalace-tomb-test.yml` runs the same test on GitHub Actions and uploads a **sanitized synthetic** report. The report is not evidence of success unless the workflow concludes successfully.
+## Qualification
 
-**Pass gate:** both historical searches return the exact shared marker; Tomb 2 returns its post-move marker; the historical marker survives export; Tomb 1 scoped search does not reveal Tomb 2's marker. Fail closed on any error.
-
-## Next stage (not authorized by a Stage-1 pass)
-
-Attach actual LLM A and B adapters, preserve their prompt/response transcripts in MemPalace, evaluate blind factual question answering by A, and compare against a no-memory baseline. Do not confuse retrieval from a shared archive with internal model learning.
+Do not promote until there is a completed green GitHub Actions run and examined evidence. Single-run success is only feasibility; reliability requires repeated fresh runs and documented failure modes.
