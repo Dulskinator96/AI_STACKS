@@ -43,7 +43,7 @@ jobs:
           python-version: "3.12"
       - name: Validate test harness without fake inference
         run: |
-          python -m py_compile experiments/mempalace/tomb_relocation.py
+          python -m py_compile experiments/mempalace/tomb_relocation.py experiments/mempalace/knowledge_collaboration.py
           python -m unittest discover -s experiments/mempalace -p "test_*.py" -v
       - name: Install original MemPalace
         run: |
@@ -68,11 +68,18 @@ jobs:
           python experiments/mempalace/tomb_relocation.py \
             --model-a qwen2.5:0.5b --model-b smollm2:135m \
             --report mempalace-result.json
+      - name: Execute real complementary-knowledge collaboration gate
+        run: |
+          python experiments/mempalace/knowledge_collaboration.py \
+            --model-a qwen2.5:0.5b --model-b smollm2:135m \
+            --report mempalace-collaboration.json
       - name: Preserve bounded evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: mempalace-real-llm-${{ github.run_id }}
-          path: mempalace-result.json
+          path: |
+            mempalace-result.json
+            mempalace-collaboration.json
           if-no-files-found: warn
           retention-days: 7
