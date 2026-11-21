@@ -63,16 +63,20 @@ jobs:
           ollama pull qwen2.5:0.5b
           ollama pull smollm2:135m
           ollama list
-      - name: Execute real shared-memory recall gate
-        run: |
-          python experiments/mempalace/tomb_relocation.py \
-            --model-a qwen2.5:0.5b --model-b smollm2:135m \
-            --report mempalace-result.json
       - name: Execute real complementary-knowledge collaboration gate
+        id: collaboration
+        continue-on-error: true
         run: |
           python experiments/mempalace/knowledge_collaboration.py \
             --model-a qwen2.5:0.5b --model-b smollm2:135m \
             --report mempalace-collaboration.json
+      - name: Execute real shared-memory recall gate
+        id: recall
+        continue-on-error: true
+        run: |
+          python experiments/mempalace/tomb_relocation.py \
+            --model-a qwen2.5:0.5b --model-b smollm2:135m \
+            --report mempalace-result.json
       - name: Preserve bounded evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
@@ -83,3 +87,8 @@ jobs:
             mempalace-collaboration.json
           if-no-files-found: warn
           retention-days: 7
+      - name: Enforce both live evidence gates
+        if: always()
+        run: |
+          test "${{ steps.collaboration.outcome }}" = "success"
+          test "${{ steps.recall.outcome }}" = "success"
