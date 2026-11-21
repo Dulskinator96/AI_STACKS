@@ -1,0 +1,40 @@
+name: MemPalace Runner Smoke Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/mempalace-tomb-memory-v1
+    paths:
+      - ".github/workflows/mempalace-smoke.yml"
+      - "experiments/mempalace/runner_smoke.py"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/mempalace-smoke.yml"
+      - "experiments/mempalace/runner_smoke.py"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Execute minimal real Python gate
+        run: python experiments/mempalace/runner_smoke.py
+      - name: Upload bounded run receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mempalace-runner-smoke-${{ github.run_id }}
+          path: mempalace-runner-smoke.json
+          if-no-files-found: warn
+          retention-days: 7
