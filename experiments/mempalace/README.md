@@ -47,3 +47,19 @@ Do not promote until there is a completed green GitHub Actions run and examined 
 ## Execution trigger
 
 The live-model GitHub Actions gate is requested for execution. A workflow `push` event on this experimental branch is used to trigger the configured test; successful completion must be established separately from the commit.
+
+## Stage 2: Genuine model collaboration using associated knowledge
+
+Runner: `knowledge_collaboration.py`. Calls two Ollama LLMs and the actual upstream MemPalace CLI. The models each hold only one fact: A knows PROJECT -> BRIDGE, and B knows BRIDGE -> TARGET. Each fact and each live model acknowledgment is indexed in its own MemPalace wing.
+
+The evaluation requires BOTH single-model attempts to fail at retrieving the full answer, then performs an explicit, auditable handoff: A reads its indexed memory and selects BRIDGE; B looks up its own memory for the corresponding TARGET; A uses B's answer to produce the final TARGET. The exact output must match. It reports each original model response, stage correctness, latency and SHA-256 of governing instructions.
+
+A successful test would demonstrate retrieval-assisted collaboration between the two genuine LLMs. It does **not** demonstrate spontaneous knowledge transfer, the models updating their weights, or a shared consciousness. One trial establishes feasibility, not an 80% reliability estimate. Further repetitions and varied tasks are required before promotion.
+
+```bash
+python experiments/mempalace/knowledge_collaboration.py \
+  --model-a qwen2.5:0.5b --model-b smollm2:135m \
+  --report mempalace-collaboration.json
+```
+
+GitHub Actions runs the collaboration gate separately from the historical-recall stage and retains separate evidence.
