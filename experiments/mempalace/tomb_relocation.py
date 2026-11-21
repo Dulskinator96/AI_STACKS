@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,7 +17,7 @@ import time
 
 
 def cli(*arguments):
-    command = [sys.executable, "-m", "mempalace.cli", *map(str, arguments)]
+    command = [shutil.which("mempalace") or "mempalace", *map(str, arguments)]
     p = subprocess.run(command, text=True, capture_output=True, timeout=360)
     if p.returncode:
         raise RuntimeError(f"{command!r}: rc={p.returncode}\n{p.stdout}\n{p.stderr}")
