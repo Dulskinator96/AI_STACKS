@@ -1,4 +1,4 @@
-name: MemPalace tomb memory gate
+name: MemPalace real LLM tomb experiment
 on:
   workflow_dispatch:
   push:
@@ -7,23 +7,39 @@ on:
       - "experiments/mempalace/**"
       - ".github/workflows/mempalace-tomb-test.yml"
 jobs:
-  stage1:
+  live-model-stage1:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-      - name: Install upstream MemPalace
+      - name: Install genuine MemPalace
         run: python -m pip install "mempalace==3.12.0"
-      - name: Execute actual memory retrieval experiment
-        run: python experiments/mempalace/tomb_relocation.py --report mempalace-result.json
-      - name: Preserve synthetic evidence
+      - name: Install Ollama local inference
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve > /tmp/ollama.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:11434/api/tags >/dev/null
+      - name: Download two distinct local LLMs
+        run: |
+          ollama pull qwen2.5:0.5b
+          ollama pull smollm2:135m
+          ollama list
+      - name: Real inferencing, relocation and MemPalace recall
+        run: |
+          python experiments/mempalace/tomb_relocation.py \
+            --model-a qwen2.5:0.5b --model-b smollm2:135m \
+            --report mempalace-result.json
+      - name: Upload evidence, including failures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mempalace-stage1-results
+          name: mempalace-real-llm-evidence
           path: mempalace-result.json
           if-no-files-found: warn
