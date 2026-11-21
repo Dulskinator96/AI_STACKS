@@ -43,3 +43,7 @@ python experiments/mempalace/tomb_relocation.py --report mempalace-result.json
 ## Qualification
 
 Do not promote until there is a completed green GitHub Actions run and examined evidence. Single-run success is only feasibility; reliability requires repeated fresh runs and documented failure modes.
+
+## Execution trigger
+
+The live-model GitHub Actions gate is requested for execution. A workflow `push` event on this experimental branch is used to trigger the configured test; successful completion must be established separately from the commit.
