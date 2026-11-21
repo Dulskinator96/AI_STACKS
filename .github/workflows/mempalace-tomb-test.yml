@@ -1,45 +1,73 @@
 name: MemPalace real LLM tomb experiment
+
 on:
   workflow_dispatch:
   push:
-    branches: [experiment/mempalace-tomb-memory-v1]
+    branches:
+      - experiment/mempalace-tomb-memory-v1
     paths:
       - "experiments/mempalace/**"
       - ".github/workflows/mempalace-tomb-test.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mempalace-stage1-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   live-model-stage1:
+    if: github.repository == 'Dulskinator96/AI_STACKS'
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      HF_HUB_DISABLE_IMPLICIT_TOKEN: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out exact test revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configure Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install genuine MemPalace
-        run: python -m pip install "mempalace==3.12.0"
-      - name: Install Ollama local inference
+      - name: Validate test harness without fake inference
+        run: |
+          python -m py_compile experiments/mempalace/tomb_relocation.py
+          python -m unittest discover -s experiments/mempalace -p "test_*.py" -v
+      - name: Install original MemPalace
+        run: |
+          python -m pip install --disable-pip-version-check "mempalace==3.12.0"
+          mempalace --help > /dev/null
+      - name: Install Ollama local inference engine
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
-          ollama serve > /tmp/ollama.log 2>&1 &
+          ollama serve > /tmp/mempalace-ollama.log 2>&1 &
           for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null; then break; fi
+            if curl -fsS http://127.0.0.1:11434/api/tags > /dev/null 2>&1; then break; fi
             sleep 2
           done
-          curl -fsS http://127.0.0.1:11434/api/tags >/dev/null
-      - name: Download two distinct local LLMs
+          curl -fsS http://127.0.0.1:11434/api/tags > /dev/null
+      - name: Download both genuine model weights
         run: |
           ollama pull qwen2.5:0.5b
           ollama pull smollm2:135m
           ollama list
-      - name: Real inferencing, relocation and MemPalace recall
+      - name: Execute real shared-memory recall gate
         run: |
           python experiments/mempalace/tomb_relocation.py \
             --model-a qwen2.5:0.5b --model-b smollm2:135m \
             --report mempalace-result.json
-      - name: Upload evidence, including failures
+      - name: Preserve bounded evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mempalace-real-llm-evidence
+          name: mempalace-real-llm-${{ github.run_id }}
           path: mempalace-result.json
           if-no-files-found: warn
+          retention-days: 7
